@@ -34,6 +34,7 @@ final class SettingsStore
         static let autoUpdateCheckEnabled = "AutoUpdateCheckEnabled"
         static let lastUpdateCheckDate = "LastUpdateCheckDate"
         static let lastSeenVersion = "LastSeenVersion"
+        static let playgroundUsed = "PlaygroundUsed"
     }
 
     struct SavedProvider: Codable, Identifiable, Hashable
@@ -266,6 +267,11 @@ final class SettingsStore
     var lastSeenVersion: String? {
         get { defaults.string(forKey: Keys.lastSeenVersion) }
         set { defaults.set(newValue, forKey: Keys.lastSeenVersion) }
+    }
+    
+    var playgroundUsed: Bool {
+        get { defaults.bool(forKey: Keys.playgroundUsed) }
+        set { defaults.set(newValue, forKey: Keys.playgroundUsed) }
     }
 
     func shouldShowWhatsNew() -> Bool {
