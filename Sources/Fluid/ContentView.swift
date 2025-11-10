@@ -180,6 +180,7 @@ struct ContentView: View {
         .environmentObject(mouseTracker)
         .sheet(isPresented: $showWhatsNewSheet) {
             WhatsNewView()
+                .appTheme(theme)
         }
         .onAppear {
             appear = true
