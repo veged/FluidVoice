@@ -11,7 +11,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/mxcl/AppUpdater.git", from: "1.0.0"),
         .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.7.4"),
-        .package(url: "https://github.com/mxcl/PromiseKit", from: "6.0.0")
+        .package(url: "https://github.com/mxcl/PromiseKit", from: "6.0.0"),
+        .package(url: "https://github.com/MrKai77/DynamicNotchKit", from: "1.0.0")
     ],
     targets: [
         .executableTarget(
@@ -19,7 +20,8 @@ let package = Package(
             dependencies: [
                 "AppUpdater",
                 "FluidAudio",
-                "PromiseKit"
+                "PromiseKit",
+                "DynamicNotchKit"
             ]
         )
     ]
