@@ -394,13 +394,13 @@ final class MenuBarManager: ObservableObject {
     @objc private func checkForUpdates(_ sender: Any?) {
         print("🔎 Menu action: Check for Updates…")
         NSLog("🔎 Menu action: Check for Updates…")
-
+        
         // Call the AppDelegate's manual update check method if available
         if let appDelegate = NSApp.delegate as? AppDelegate {
             appDelegate.checkForUpdatesManually()
             return
         }
-
+        
         // Fallback: perform direct, tolerant check so the menu item always does something
         Task { @MainActor in
             do {
@@ -435,38 +435,58 @@ final class MenuBarManager: ObservableObject {
         // Activate the app and bring it to the front
         NSApp.activate(ignoringOtherApps: true)
         
-        // Find and restore the main window
+        // Find and restore an existing primary window (avoid overlay/panel windows)
         var foundWindow = false
-        for window in NSApp.windows {
-            if window.title.contains("FluidVoice") || window.isMainWindow || window.contentView != nil {
-                // Handle minimized windows
-                if window.isMiniaturized {
-                    window.deminiaturize(nil)
-                }
-                
-                // Bring to current space and make key
-                window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
-                foundWindow = true
-                break
+        let candidateWindows = NSApp.windows
+            .filter { win in
+                // Prefer titled, key-capable windows or ones explicitly titled as our app
+                win.title.contains("FluidVoice") || (win.styleMask.contains(.titled) && win.canBecomeKey)
             }
+        
+        if let window = candidateWindows.first {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            foundWindow = true
         }
         
-        // If no window found, try to activate any available window
-        if !foundWindow && !NSApp.windows.isEmpty {
-            if let firstWindow = NSApp.windows.first {
-                if firstWindow.isMiniaturized {
-                    firstWindow.deminiaturize(nil)
-                }
-                firstWindow.makeKeyAndOrderFront(nil)
-                firstWindow.orderFrontRegardless()
-                foundWindow = true
-            }
+        // If still nothing suitable, create a new main window
+        if !foundWindow {
+            createAndShowMainWindow()
+            foundWindow = true
         }
         
         // Final attempt: ensure app is active and visible
         if foundWindow {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+    
+    /// Create and present a fresh main window hosting `ContentView`
+    private func createAndShowMainWindow() {
+        // Build the SwiftUI root view with required environment
+        let rootView = ContentView()
+            .environmentObject(self)
+            .appTheme(.dark)
+            .preferredColorScheme(.dark)
+        
+        // Host inside an AppKit window
+        let hostingController = NSHostingController(rootView: rootView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "FluidVoice"
+        window.contentViewController = hostingController
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        
+        // Bring app to front in case we're running as an accessory app (no Dock)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

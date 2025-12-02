@@ -319,14 +319,14 @@ extension HuggingFaceModelDownloader
         // Check if new structure exists
         let hasNewStructure = fm.fileExists(atPath: preprocessorUrl.path) && fm.fileExists(atPath: encoderUrl.path)
         
-        let melEncoder: MLModel
+        let encoder: MLModel
+        let preprocessor: MLModel?
         
         if hasNewStructure {
             // Load with new structure (separate Preprocessor and Encoder)
-            // For FluidAudio API, we use the Encoder as melEncoder
             print("[ModelDL] Loading with new model structure (Preprocessor + Encoder)")
-            print("[ModelDL] Using Encoder as melEncoder for FluidAudio API")
-            melEncoder = try MLModel(contentsOf: encoderUrl, configuration: config)
+            preprocessor = try MLModel(contentsOf: preprocessorUrl, configuration: config)
+            encoder = try MLModel(contentsOf: encoderUrl, configuration: config)
         } else {
             // Fallback: Try old structure (MelEncoder)
             let melEncUrl = repoDirectory.appendingPathComponent("MelEncoder.mlmodelc")
@@ -335,7 +335,8 @@ extension HuggingFaceModelDownloader
             print("[ModelDL] MelEncoder exists: \(fm.fileExists(atPath: melEncUrl.path))")
             
             if fm.fileExists(atPath: melEncUrl.path) {
-                melEncoder = try MLModel(contentsOf: melEncUrl, configuration: config)
+                encoder = try MLModel(contentsOf: melEncUrl, configuration: config)
+                preprocessor = nil
                 print("[ModelDL] Using MelEncoder (legacy mode)")
             } else {
                 throw NSError(domain: "ModelDL", code: -1, userInfo: [
@@ -363,12 +364,18 @@ extension HuggingFaceModelDownloader
 
         print("[ModelDL] Creating AsrModels")
 
+        // For v2 models without separate preprocessor, use encoder as preprocessor
+        // For v3 models, use the separate preprocessor
+        let finalPreprocessor = preprocessor ?? encoder
+        
         return AsrModels(
-            melEncoder: melEncoder,
+            encoder: encoder,
+            preprocessor: finalPreprocessor,
             decoder: decoder,
             joint: joint,
             configuration: config,
-            vocabulary: vocabulary
+            vocabulary: vocabulary,
+            version: preprocessor != nil ? .v3 : .v2
         )
     }
 }

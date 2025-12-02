@@ -1,5 +1,5 @@
 import Foundation
-Cimport ServiceManagement
+import ServiceManagement
 import ApplicationServices
 import AppKit
 import Combine

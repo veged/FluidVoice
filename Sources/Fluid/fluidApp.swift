@@ -16,7 +16,7 @@ struct fluidApp: App {
     @State private var theme = AppTheme.dark
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView()
                 .environmentObject(menuBarManager)
                 .appTheme(theme)
