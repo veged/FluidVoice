@@ -554,33 +554,6 @@ struct SettingsView: View {
                     .padding(16)
                 }
 
-                // Filler Words Card
-                ThemedCard(style: .standard) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Label("Filler Words", systemImage: "text.badge.minus")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            optionToggleRow(
-                                title: "Remove Filler Words",
-                                description: "Automatically remove filler sounds like 'um', 'uh', 'er' from transcriptions.",
-                                isOn: Binding(
-                                    get: { SettingsStore.shared.removeFillerWordsEnabled },
-                                    set: { SettingsStore.shared.removeFillerWordsEnabled = $0 }
-                                )
-                            )
-
-                            if SettingsStore.shared.removeFillerWordsEnabled {
-                                Divider()
-
-                                FillerWordsEditor()
-                            }
-                        }
-                    }
-                    .padding(16)
-                }
-
                 // Debug Settings Card
                 ThemedCard(style: .standard) {
                     VStack(alignment: .leading, spacing: 14) {
