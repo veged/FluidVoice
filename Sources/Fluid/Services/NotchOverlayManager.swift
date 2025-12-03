@@ -168,9 +168,17 @@ final class NotchOverlayManager {
         NotchContentState.shared.updateTranscription("")
         
         // Create notch with SwiftUI views
+        guard let (targetScreen, style) = resolveScreenAndStyle(
+            topCornerRadius: 12,
+            bottomCornerRadius: 18,
+            floatingCornerRadius: 18
+        ) else {
+            return
+        }
+        
         let newNotch = DynamicNotch(
             hoverBehavior: [.keepVisible, .hapticFeedback],
-            style: .notch(topCornerRadius: 12, bottomCornerRadius: 18)
+            style: style
         ) {
             NotchExpandedView(audioPublisher: audioLevelPublisher)
         } compactLeading: {
@@ -183,7 +191,7 @@ final class NotchOverlayManager {
         
         // Show in expanded state
         Task { [weak self] in
-            await newNotch.expand()
+            await newNotch.expand(on: targetScreen)
             // Only update state if we're still the active generation
             guard let self = self, self.generation == currentGeneration else { return }
             self.state = .visible
@@ -293,9 +301,19 @@ final class NotchOverlayManager {
         
         let publisher = lastAudioPublisher ?? Empty<CGFloat, Never>().eraseToAnyPublisher()
         
+        guard let (targetScreen, style) = resolveScreenAndStyle(
+            topCornerRadius: 12,
+            bottomCornerRadius: 16,
+            floatingCornerRadius: 18
+        ) else {
+            isCommandOutputExpanded = false
+            commandOutputState = .idle
+            return
+        }
+        
         let newNotch = DynamicNotch(
             hoverBehavior: [],  // No keepVisible - allows closing with X/Escape even when cursor is on notch
-            style: .notch(topCornerRadius: 12, bottomCornerRadius: 16)
+            style: style
         ) {
             NotchCommandOutputExpandedView(
                 audioPublisher: publisher,
@@ -336,7 +354,7 @@ final class NotchOverlayManager {
         
         self.commandOutputNotch = newNotch
         
-        await newNotch.expand()
+        await newNotch.expand(on: targetScreen)
         
         guard self.commandOutputGeneration == currentGeneration else { return }
         self.commandOutputState = .visible
@@ -390,6 +408,33 @@ final class NotchOverlayManager {
     func updateAudioPublisher(_ publisher: AnyPublisher<CGFloat, Never>) {
         lastAudioPublisher = publisher
         currentAudioPublisher = publisher
+    }
+    
+    // MARK: - Screen Helpers
+    
+    private func resolveScreenAndStyle(topCornerRadius: CGFloat,
+                                       bottomCornerRadius: CGFloat,
+                                       floatingCornerRadius: CGFloat) -> (screen: NSScreen, style: DynamicNotchStyle)? {
+        guard let screen = activeScreen() else { return nil }
+        
+        if screenHasNotch(screen) {
+            return (screen, .notch(topCornerRadius: topCornerRadius, bottomCornerRadius: bottomCornerRadius))
+        } else {
+            return (screen, .floating(cornerRadius: floatingCornerRadius))
+        }
+    }
+    
+    private func activeScreen() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        let screens = NSScreen.screens
+        if let hoveredScreen = screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
+            return hoveredScreen
+        }
+        return NSScreen.main ?? screens.first
+    }
+    
+    private func screenHasNotch(_ screen: NSScreen) -> Bool {
+        screen.auxiliaryTopLeftArea?.width != nil && screen.auxiliaryTopRightArea?.width != nil
     }
 }
 
