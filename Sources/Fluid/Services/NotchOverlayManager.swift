@@ -67,8 +67,14 @@ final class NotchOverlayManager {
     private var globalEscapeMonitor: Any?
     private var localEscapeMonitor: Any?
     
+    // Screen change observers
+    private var screenChangeObserver: Any?
+    private var screenWakeObserver: Any?
+    private var screenChangeHandlingTask: Task<Void, Never>?
+    
     private init() {
         setupEscapeKeyMonitors()
+        setupScreenChangeObservers()
     }
     
     deinit {
@@ -78,6 +84,13 @@ final class NotchOverlayManager {
         if let monitor = localEscapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let observer = screenChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = screenWakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        screenChangeHandlingTask?.cancel()
     }
     
     /// Setup escape key monitors - both global (other apps) and local (our app)
@@ -108,6 +121,25 @@ final class NotchOverlayManager {
         
         // Local monitor - catches escape when OUR app/notch has focus
         localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: escapeHandler)
+    }
+    
+    /// Observe screen configuration changes so we can clean up rogue notch windows
+    private func setupScreenChangeObservers() {
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleScreenConfigurationHandling(reason: "ScreenParametersChanged")
+        }
+        
+        screenWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleScreenConfigurationHandling(reason: "ScreensDidWake")
+        }
     }
     
     func show(audioLevelPublisher: AnyPublisher<CGFloat, Never>, mode: OverlayMode) {
@@ -435,6 +467,31 @@ final class NotchOverlayManager {
     
     private func screenHasNotch(_ screen: NSScreen) -> Bool {
         screen.auxiliaryTopLeftArea?.width != nil && screen.auxiliaryTopRightArea?.width != nil
+    }
+    
+    // MARK: - Screen Change Handling
+    
+    private func scheduleScreenConfigurationHandling(reason: String) {
+        screenChangeHandlingTask?.cancel()
+        screenChangeHandlingTask = Task { [weak self] in
+            await self?.handleScreenConfigurationChange(reason: reason)
+        }
+    }
+    
+    private func handleScreenConfigurationChange(reason: String) async {
+        pendingRetryTask?.cancel()
+        pendingRetryTask = nil
+        
+        if isCommandOutputExpanded {
+            hideExpandedCommandOutput()
+        }
+        
+        await performCleanup()
+        state = .idle
+        commandOutputState = .idle
+        
+        // Intentionally do not auto-restore the overlay; users can re-trigger via hotkey.
+        DebugLogger.shared.debug("NotchOverlayManager: cleaned up after \(reason) (no auto-restore)", source: "NotchOverlayManager")
     }
 }
 
