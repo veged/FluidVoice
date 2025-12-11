@@ -70,6 +70,11 @@ https://github.com/user-attachments/assets/c57ef6d5-f0a1-4a3f-a121-637533442c24
 - Microphone access
 - Accessibility permissions for typing
 
+
+## Join our small community to help us grow and give feedback :) ( Or just hang?!)   
+
+https://discord.gg/VUPHaKSvYV  
+
 ## Building from Source
 
 ```bash
