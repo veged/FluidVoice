@@ -8,7 +8,7 @@ import Combine
 import Combine
 
 /// Result of a transcription operation
-struct TranscriptionResult: Identifiable, Sendable, Codable {
+nonisolated struct TranscriptionResult: Identifiable, Sendable, Codable {
     let id = UUID()
     let text: String
     let confidence: Float

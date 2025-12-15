@@ -16,9 +16,11 @@ final class WhisperProvider: TranscriptionProvider {
     private var whisper: Whisper?
     private(set) var isReady: Bool = false
     
-    /// Model size to use - base is a good balance of speed and accuracy
+    /// Model filename to use - reads from the unified SpeechModel setting
     /// Models: tiny (~75MB), base (~142MB), small (~466MB), medium (~1.5GB), large (~2.9GB)
-    private let modelName = "ggml-base.bin"
+    private var modelName: String {
+        SettingsStore.shared.selectedSpeechModel.whisperModelFile ?? "ggml-base.bin"
+    }
     
     private var modelURL: URL {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!

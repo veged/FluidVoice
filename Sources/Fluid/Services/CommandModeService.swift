@@ -186,7 +186,7 @@ final class CommandModeService: ObservableObject {
     
     /// Save current conversation to store
     func saveCurrentChat() {
-        guard let chatID = currentChatID else { return }
+        guard currentChatID != nil else { return }
         
         let messages = conversationHistory.map { messageToChatMessage($0) }
         chatStore.updateCurrentChat(messages: messages)
