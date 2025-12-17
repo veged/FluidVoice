@@ -20,6 +20,14 @@ final class FunctionCallingProvider {
         let tool_call_id: String?
         let name: String?
 
+        enum CodingKeys: String, CodingKey {
+            case role
+            case content
+            case tool_calls
+            case tool_call_id
+            case name
+        }
+
         init(
             role: String,
             content: String?,
@@ -218,8 +226,7 @@ final class FunctionCallingProvider {
         let body = ChatRequest(
             model: model,
             messages: messages,
-            temperature: isReasoningModel ? nil : 0.2, // Don't send temperature for reasoning models
-            tools: tools,
+            temperature: isReasoningModel ? nil : 0.2,
             tools: tools,
             tool_choice: tools.isEmpty ? nil : "auto"
         )
@@ -280,7 +287,8 @@ final class FunctionCallingProvider {
             let message = choice.message
 
             // Check if LLM wants to call tools
-            if let toolCalls = message.tool_calls, !toolCalls.isEmpty {
+            let toolCalls = message.tool_calls
+            if toolCalls.isEmpty == false {
                 DebugLogger.shared.info(
                     "🎯 LLM decided to call \(toolCalls.count) tools",
                     source: "FunctionCallingProvider"
@@ -362,8 +370,8 @@ final class FunctionCallingProvider {
         let body = ChatRequest(
             model: model,
             messages: messages,
-            temperature: isReasoningModel ? nil : 0.2, // Don't send temperature for reasoning models
-            tools: nil,
+            temperature: isReasoningModel ? nil : 0.2,
+            tools: [],
             tool_choice: nil
         )
 
@@ -400,7 +408,8 @@ final class FunctionCallingProvider {
 
             // If the model tries to call tools again despite tool_choice being "none",
             // just extract the text content or return a generic message
-            if let toolCalls = choice.message.tool_calls, !toolCalls.isEmpty {
+            let toolCalls = choice.message.tool_calls
+            if !toolCalls.isEmpty {
                 DebugLogger.shared
                     .warning(
                         "Model tried to call tools in final response (tool_choice was 'none'). Ignoring tool calls.",

@@ -47,8 +47,9 @@ final class TextSelectionService {
             &focusedElement
         )
 
-        if result == .success, let element = focusedElement as? AXUIElement {
-            return element
+        if result == .success, let focusedElement {
+            guard CFGetTypeID(focusedElement) == AXUIElementGetTypeID() else { return nil }
+            return unsafeBitCast(focusedElement, to: AXUIElement.self)
         }
 
         return nil
@@ -62,8 +63,9 @@ final class TextSelectionService {
             &focusedElement
         )
 
-        if result == .success, let element = focusedElement as? AXUIElement {
-            return element
+        if result == .success, let focusedElement {
+            guard CFGetTypeID(focusedElement) == AXUIElementGetTypeID() else { return nil }
+            return unsafeBitCast(focusedElement, to: AXUIElement.self)
         }
 
         return nil
