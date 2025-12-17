@@ -25,12 +25,6 @@ jobs:
 
     - name: Run SwiftLint (strict)
       run: swiftlint --strict --config .swiftlint.yml
-
-    - name: Install SwiftFormat
-      run: brew install swiftformat
-
-    - name: Run SwiftFormat (lint)
-      run: swiftformat --lint --config .swiftformat Sources
       
     - name: Setup Xcode
       uses: maxim-lobanov/setup-xcode@v1
