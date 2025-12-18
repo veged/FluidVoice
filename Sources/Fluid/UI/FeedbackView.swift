@@ -82,27 +82,29 @@ struct FeedbackView: View {
                             
                             Spacer()
                             
-                            Link(destination: URL(string: "https://github.com/altic-dev/Fluid-oss")!) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "star.fill")
-                                    Text("Star on GitHub")
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.system(size: 14))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(
-                                    LinearGradient(
-                                        colors: [.purple, .blue],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
+                            if let githubURL = URL(string: "https://github.com/altic-dev/Fluid-oss") {
+                                Link(destination: githubURL) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "star.fill")
+                                        Text("Star on GitHub")
+                                            .fontWeight(.semibold)
+                                    }
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        LinearGradient(
+                                            colors: [.purple, .blue],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
                                     )
-                                )
-                                .cornerRadius(8)
+                                    .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                                .buttonHoverEffect()
                             }
-                            .buttonStyle(.plain)
-                            .buttonHoverEffect()
                         }
                     }
                     .padding(20)

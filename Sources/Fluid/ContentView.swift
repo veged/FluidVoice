@@ -32,17 +32,7 @@ enum SidebarItem: Hashable {
 // MARK: - Saved Provider Model
 // Removed deprecated inline service and model
 
-// MARK: - Streaming Response Structures
-private struct StreamingDelta: Codable { let role: String?; let content: String? }
-private struct StreamingChoice: Codable { let index: Int?; let delta: StreamingDelta; let finish_reason: String? }
-private struct StreamingChunk: Codable { let choices: [StreamingChoice] }
-
-// MARK: - AI Processing Response Structures
-// NOTE: Keep Codable types out of View methods to avoid SwiftUI/metadata blowups at launch.
-private struct AIProcessingMessage: Codable { let role: String; let content: String }
-private struct AIProcessingChoiceMessage: Codable { let role: String; let content: String }
-private struct AIProcessingChoice: Codable { let index: Int?; let message: AIProcessingChoiceMessage }
-private struct AIProcessingResponse: Codable { let choices: [AIProcessingChoice] }
+// NOTE: Streaming and AI response parsing is now handled by LLMClient
 
 struct ContentView: View {
     @StateObject private var audioObserver = AudioHardwareObserver()
@@ -312,7 +302,6 @@ struct ContentView: View {
                 let shortcutModifiers = hotkeyShortcut.modifierFlags.intersection([.function, .command, .option, .control, .shift])
                 
                 let isRecordingAnyShortcut = isRecordingShortcut || isRecordingCommandModeShortcut || isRecordingRewriteShortcut
-                DebugLogger.shared.debug("NSEvent \(event.type) keyCode=\(event.keyCode) recordingShortcut=\(isRecordingShortcut) recordingCommand=\(isRecordingCommandModeShortcut) recordingRewrite=\(isRecordingRewriteShortcut)", source: "ContentView")
 
                 if event.type == .keyDown {
                     if event.keyCode == hotkeyShortcut.keyCode && eventModifiers == shortcutModifiers {
@@ -1131,6 +1120,8 @@ struct ContentView: View {
         
         return false
     }
+    
+    // NOTE: Thinking token filtering is now handled by LLMClient.stripThinkingTags()
 
     // MARK: - Modular AI Processing
     private func processTextWithAI(_ inputText: String) async -> String {
@@ -1181,195 +1172,87 @@ struct ContentView: View {
             return inputText // Fallback if not available
         }
         
-        let endpoint = derivedBaseURL.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty ? "https://api.openai.com/v1" : derivedBaseURL.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        
-        // Build the full URL - only append /chat/completions if not already present
-        let fullEndpoint: String
-        if endpoint.contains("/chat/completions") || 
-           endpoint.contains("/api/chat") || 
-           endpoint.contains("/api/generate") {
-            // URL already has a complete path, use as-is
-            fullEndpoint = endpoint
-        } else {
-            // Append /chat/completions for OpenAI-compatible endpoints
-            fullEndpoint = endpoint + "/chat/completions"
-        }
-        
-        guard let url = URL(string: fullEndpoint) else {
-            return "Error: Invalid Base URL"
-        }
-        
-        let isLocal = isLocalEndpoint(endpoint)
+        // Skip API key validation for local endpoints
+        let isLocal = isLocalEndpoint(derivedBaseURL)
         let apiKey = storedProviderAPIKeys[derivedCurrentProvider] ?? ""
         
-        // Skip API key validation for local endpoints
         if !isLocal {
             guard !apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty else {
                 return "Error: API Key not set for \(derivedCurrentProvider)"
             }
         }
         
-
         // Get app context captured at start of recording if available
         let appInfo = recordingAppInfo ?? getCurrentAppInfo()
         let systemPrompt = buildSystemPrompt(appInfo: appInfo)
         DebugLogger.shared.debug("Using app context for AI: app=\(appInfo.name), bundleId=\(appInfo.bundleId), title=\(appInfo.windowTitle)", source: "ContentView")
         
-        // Get reasoning config for this model (uses per-model settings or auto-detection)
-        let providerKey = self.providerKey(for: currentSelectedProviderID)
-        let reasoningConfig = SettingsStore.shared.getReasoningConfig(forModel: derivedSelectedModel, provider: providerKey)
-        
-        if let config = reasoningConfig {
-            DebugLogger.shared.debug("Model '\(derivedSelectedModel)' reasoning config: \(config.parameterName)=\(config.parameterValue), enabled=\(config.isEnabled)", source: "ContentView")
-        } else {
-            DebugLogger.shared.debug("Model '\(derivedSelectedModel)' has no reasoning config", source: "ContentView")
-        }
-        
-        // Get streaming setting
-        let enableStreaming = SettingsStore.shared.enableAIStreaming
-        
         // Check if this is a reasoning model that doesn't support temperature parameter
         let modelLower = derivedSelectedModel.lowercased()
         let isReasoningModel = modelLower.hasPrefix("o1") || modelLower.hasPrefix("o3") || modelLower.hasPrefix("gpt-5")
         
-        // Build request body dynamically to support different reasoning parameters
-        var requestDict: [String: Any] = [
-            "model": derivedSelectedModel,
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": inputText]
-            ]
-        ]
+        // Get reasoning config for this model (uses per-model settings or auto-detection)
+        // This handles custom parameters like reasoning_effort, enable_thinking, etc.
+        let providerKey = self.providerKey(for: currentSelectedProviderID)
+        let reasoningConfig = SettingsStore.shared.getReasoningConfig(forModel: derivedSelectedModel, provider: providerKey)
         
-        // Only add temperature for non-reasoning models
-        // OpenAI reasoning models (o1, o3, gpt-5) don't support custom temperature
-        if !isReasoningModel {
-            requestDict["temperature"] = 0.2
-        }
-        
-        // Add reasoning parameter if configured for this model
+        // Build extra parameters from reasoning config
+        var extraParams: [String: Any]? = nil
         if let config = reasoningConfig, config.isEnabled {
             if config.parameterName == "enable_thinking" {
                 // DeepSeek uses boolean
-                requestDict[config.parameterName] = config.parameterValue == "true"
+                extraParams = [config.parameterName: config.parameterValue == "true"]
             } else {
-                // OpenAI/Groq use string values
-                requestDict[config.parameterName] = config.parameterValue
+                // OpenAI/Groq use string values (reasoning_effort, etc.)
+                extraParams = [config.parameterName: config.parameterValue]
             }
             DebugLogger.shared.debug("Added reasoning param: \(config.parameterName)=\(config.parameterValue)", source: "ContentView")
         }
         
-        // Add streaming if enabled
-        if enableStreaming {
-            requestDict["stream"] = true
-        }
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestDict, options: []) else {
-            return "Error: Failed to encode request"
-        }
+        // Build messages array
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": inputText]
+        ]
         
-        // Debug: Log request body
-        if let bodyStr = String(data: jsonData, encoding: .utf8) {
-            DebugLogger.shared.debug("AI Request body: \(bodyStr)", source: "ContentView")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        // NOTE: Transcription doesn't need streaming - the full result appears at once
+        // Streaming is only useful for Command/Rewrite modes where real-time display helps
+        // Using non-streaming is simpler and more reliable for transcription cleanup
+        let enableStreaming = false  // Hardcoded off for transcription
         
-        // Only add Authorization header for non-local endpoints
-        if !isLocal {
-            request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
+        // Build LLMClient configuration
+        // Note: No onContentChunk callback needed since we don't display real-time
+        // Thinking tokens are extracted but not displayed (no onThinkingChunk)
+        let config = LLMClient.Config(
+            messages: messages,
+            model: derivedSelectedModel,
+            baseURL: derivedBaseURL,
+            apiKey: apiKey,
+            streaming: enableStreaming,
+            tools: nil,
+            temperature: isReasoningModel ? nil : 0.2,
+            extraParameters: extraParams
+        )
         
-        request.httpBody = jsonData
-
+        DebugLogger.shared.info("Using LLMClient for transcription (streaming=\(enableStreaming))", source: "ContentView")
+        
         do {
-            if enableStreaming {
-                // Streaming mode - parse SSE response
-                DebugLogger.shared.info("Using STREAMING mode for AI request", source: "ContentView")
-                return try await processStreamingResponse(request: request)
-            } else {
-                // Non-streaming mode - single JSON response
-                DebugLogger.shared.info("Using NON-STREAMING mode for AI request", source: "ContentView")
-                let (data, response) = try await URLSession.shared.data(for: request)
-                
-                if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-                    let errText = String(data: data, encoding: .utf8) ?? "Unknown error"
-                    return "Error: HTTP \(http.statusCode): \(errText)"
-                }
-                let decoded = try JSONDecoder().decode(AIProcessingResponse.self, from: data)
-                return decoded.choices.first?.message.content ?? "<no content>"
+            let response = try await LLMClient.shared.call(config)
+            
+            // Log thinking if present (for debugging)
+            if let thinking = response.thinking {
+                DebugLogger.shared.debug("LLM thinking tokens extracted (\(thinking.count) chars)", source: "ContentView")
             }
+            
+            return response.content.isEmpty ? "<no content>" : response.content
         } catch {
             DebugLogger.shared.error("AI API error: \(error.localizedDescription)", source: "ContentView")
             return "Error: \(error.localizedDescription)"
         }
     }
     
-    // MARK: - Streaming Response Handler
-    private func processStreamingResponse(request: URLRequest) async throws -> String {
-        DebugLogger.shared.debug("Starting streaming request to: \(request.url?.absoluteString ?? "unknown")", source: "Streaming")
-        
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        
-        if let http = response as? HTTPURLResponse {
-            DebugLogger.shared.debug("Streaming response status: \(http.statusCode)", source: "Streaming")
-            if http.statusCode >= 400 {
-                var errorData = Data()
-                for try await byte in bytes {
-                    errorData.append(byte)
-                }
-                let errText = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-                DebugLogger.shared.error("Streaming error: \(errText)", source: "Streaming")
-                return "Error: HTTP \(http.statusCode): \(errText)"
-            }
-        }
-        
-        var fullContent = ""
-        
-        // Use efficient line-based iteration instead of byte-by-byte
-        for try await rawLine in bytes.lines {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            
-            guard line.hasPrefix("data:") else { continue }
-            
-            // Handle both "data: " and "data:" formats
-            var jsonString = String(line.dropFirst(5))
-            if jsonString.hasPrefix(" ") {
-                jsonString = String(jsonString.dropFirst(1))
-            }
-            
-            // Skip [DONE] marker
-            if jsonString.trimmingCharacters(in: .whitespaces) == "[DONE]" {
-                DebugLogger.shared.debug("Received [DONE] marker", source: "Streaming")
-                continue
-            }
-            
-            // Parse the JSON chunk
-            guard let jsonData = jsonString.data(using: .utf8) else { continue }
-            
-            do {
-                let chunk = try JSONDecoder().decode(StreamingChunk.self, from: jsonData)
-                if let delta = chunk.choices.first?.delta,
-                   let content = delta.content {
-                    fullContent += content
-                }
-            } catch {
-                // Try alternative parsing for different response formats
-                if let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                   let choices = json["choices"] as? [[String: Any]],
-                   let firstChoice = choices.first,
-                   let delta = firstChoice["delta"] as? [String: Any],
-                   let content = delta["content"] as? String {
-                    fullContent += content
-                }
-            }
-        }
-        
-        DebugLogger.shared.debug("Streaming complete. Content length: \(fullContent.count)", source: "Streaming")
-        return fullContent.isEmpty ? "<no content>" : fullContent
-    }
+    // MARK: - Streaming Response Handler (DEPRECATED - Now handled by LLMClient)
+    // This method is no longer used - LLMClient.call() handles streaming internally
     
     // MARK: - Stop and Process Transcription
     private func stopAndProcessTranscription() async {

@@ -114,7 +114,6 @@ struct AISettingsView: View {
     // MARK: - Load Settings
     private func loadSettings() {
         selectedProviderID = SettingsStore.shared.selectedProviderID
-        updateCurrentProvider()
         
         enableAIProcessing = SettingsStore.shared.enableAIProcessing
         availableModelsByProvider = SettingsStore.shared.availableModelsByProvider
@@ -145,22 +144,31 @@ struct AISettingsView: View {
         selectedModelByProvider = normalizedSel
         SettingsStore.shared.selectedModelByProvider = normalizedSel
         
-        // Determine initial model list
+        // Determine initial model list AND set baseURL BEFORE calling updateCurrentProvider
         if let saved = savedProviders.first(where: { $0.id == selectedProviderID }) {
             availableModels = saved.models
-            openAIBaseURL = saved.baseURL
-        } else if let stored = availableModelsByProvider[currentProvider], !stored.isEmpty {
-            availableModels = stored
+            openAIBaseURL = saved.baseURL  // Set this FIRST
+        } else if selectedProviderID == "openai" {
+            openAIBaseURL = "https://api.openai.com/v1"
+            availableModels = availableModelsByProvider["openai"] ?? defaultModels(for: "openai")
+        } else if selectedProviderID == "groq" {
+            openAIBaseURL = "https://api.groq.com/openai/v1"
+            availableModels = availableModelsByProvider["groq"] ?? defaultModels(for: "groq")
         } else {
             availableModels = defaultModels(for: providerKey(for: selectedProviderID))
         }
         
-        // Restore selected model
+        // NOW update currentProvider after openAIBaseURL is set correctly
+        updateCurrentProvider()
+        
+        // Restore selected model using the correct currentProvider
         if let sel = selectedModelByProvider[currentProvider], availableModels.contains(sel) {
             selectedModel = sel
         } else if let first = availableModels.first {
             selectedModel = first
         }
+        
+        DebugLogger.shared.debug("loadSettings complete: provider=\(selectedProviderID), currentProvider=\(currentProvider), model=\(selectedModel), baseURL=\(openAIBaseURL)", source: "AISettingsView")
     }
     
     // MARK: - Speech Recognition Card
@@ -411,11 +419,7 @@ struct AISettingsView: View {
                 return config.isEnabled
             }
         }
-        let modelLower = selectedModel.lowercased()
-        return modelLower.hasPrefix("gpt-5") || modelLower.contains("gpt-5.") ||
-               modelLower.hasPrefix("o1") || modelLower.hasPrefix("o3") ||
-               modelLower.contains("gpt-oss") || modelLower.hasPrefix("openai/") ||
-               (modelLower.contains("deepseek") && modelLower.contains("reasoner"))
+        return SettingsStore.shared.isReasoningModel(selectedModel)
     }
     
     private func addNewModel() {
@@ -581,6 +585,9 @@ struct AISettingsView: View {
                 fullURL = endpoint + "/chat/completions"
             }
             
+            // Debug logging to diagnose test failures
+            DebugLogger.shared.debug("testAPIConnection: provider=\(selectedProviderID), model=\(selectedModel), baseURL=\(endpoint), fullURL=\(fullURL)", source: "AISettingsView")
+            
             guard let url = URL(string: fullURL) else {
                 await MainActor.run {
                     connectionStatus = .failed
@@ -592,9 +599,7 @@ struct AISettingsView: View {
             let provKey = providerKey(for: selectedProviderID)
             let reasoningConfig = SettingsStore.shared.getReasoningConfig(forModel: selectedModel, provider: provKey)
             
-            let modelLower = selectedModel.lowercased()
-            let usesMaxCompletionTokens = modelLower.hasPrefix("gpt-5") || modelLower.contains("gpt-5.") ||
-                                          modelLower.hasPrefix("o1") || modelLower.hasPrefix("o3")
+            let usesMaxCompletionTokens = SettingsStore.shared.isReasoningModel(selectedModel)
             
             var requestDict: [String: Any] = [
                 "model": selectedModel,
@@ -716,6 +721,7 @@ struct AISettingsView: View {
                     // Streaming Toggle
                     if enableAIProcessing && selectedProviderID != "apple-intelligence" {
                         streamingToggle
+                        showThinkingTokensToggle
                     }
                     
                     // API Key Warning
@@ -776,6 +782,30 @@ struct AISettingsView: View {
                 Toggle("", isOn: Binding(
                     get: { SettingsStore.shared.enableAIStreaming },
                     set: { SettingsStore.shared.enableAIStreaming = $0 }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+    
+    private var showThinkingTokensToggle: some View {
+        Group {
+            Divider().padding(.vertical, 3)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Show Thinking Tokens")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.palette.primaryText)
+                    Text("Display AI reasoning in Command and Rewrite modes (when available)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.palette.secondaryText)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { SettingsStore.shared.showThinkingTokens },
+                    set: { SettingsStore.shared.showThinkingTokens = $0 }
                 ))
                 .toggleStyle(.switch)
                 .labelsHidden()
@@ -1162,24 +1192,58 @@ struct AISettingsView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Parameter Name").font(.caption2).foregroundStyle(.secondary)
-                        Picker("", selection: $editingReasoningParamName) {
+                        Picker("", selection: Binding(
+                            get: {
+                                // Map current value to picker options
+                                if editingReasoningParamName == "reasoning_effort" { return "reasoning_effort" }
+                                else if editingReasoningParamName == "enable_thinking" { return "enable_thinking" }
+                                else { return "custom" }
+                            },
+                            set: { newValue in
+                                if newValue == "custom" {
+                                    // Keep the current value for custom editing
+                                    if editingReasoningParamName == "reasoning_effort" || editingReasoningParamName == "enable_thinking" {
+                                        editingReasoningParamName = ""
+                                    }
+                                } else {
+                                    editingReasoningParamName = newValue
+                                }
+                            }
+                        )) {
                             Text("reasoning_effort").tag("reasoning_effort")
                             Text("enable_thinking").tag("enable_thinking")
+                            Text("Custom...").tag("custom")
                         }
                         .pickerStyle(.menu).labelsHidden().frame(width: 150)
                     }
+                    
+                    // Show TextField for custom parameter name
+                    if editingReasoningParamName != "reasoning_effort" && editingReasoningParamName != "enable_thinking" {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Custom Name").font(.caption2).foregroundStyle(.secondary)
+                            TextField("e.g., thinking_budget", text: $editingReasoningParamName)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 150)
+                        }
+                    }
+                    
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Value").font(.caption2).foregroundStyle(.secondary)
                         if editingReasoningParamName == "reasoning_effort" {
                             Picker("", selection: $editingReasoningParamValue) {
-                                Text("minimal").tag("minimal"); Text("low").tag("low"); Text("medium").tag("medium"); Text("high").tag("high")
+                                Text("none").tag("none"); Text("minimal").tag("minimal"); Text("low").tag("low"); Text("medium").tag("medium"); Text("high").tag("high")
                             }
                             .pickerStyle(.menu).labelsHidden().frame(width: 100)
-                        } else {
+                        } else if editingReasoningParamName == "enable_thinking" {
                             Picker("", selection: $editingReasoningParamValue) {
                                 Text("true").tag("true"); Text("false").tag("false")
                             }
                             .pickerStyle(.menu).labelsHidden().frame(width: 100)
+                        } else {
+                            // Free-form value for custom parameters
+                            TextField("value", text: $editingReasoningParamValue)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
                         }
                     }
                 }
