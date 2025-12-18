@@ -24,9 +24,9 @@ actor AudioStartupGate {
 
     /// Schedule opening the gate once. Safe to call multiple times.
     func scheduleOpenAfterInitialUISettled(delayNanoseconds: UInt64 = 2_000_000_000) {
-        guard isOpen == false, openTask == nil else { return }
+        guard self.isOpen == false, self.openTask == nil else { return }
 
-        openTask = Task { @MainActor [weak self] in
+        self.openTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             // Give SwiftUI a couple runloop turns to finish initial layout/metadata passes.
@@ -42,21 +42,19 @@ actor AudioStartupGate {
 
     /// Await until the gate is open. Returns immediately if already open.
     func waitUntilOpen() async {
-        if isOpen { return }
+        if self.isOpen { return }
 
         await withCheckedContinuation { cont in
-            waiters.append(cont)
+            self.waiters.append(cont)
         }
     }
 
     private func open() {
-        guard isOpen == false else { return }
-        isOpen = true
+        guard self.isOpen == false else { return }
+        self.isOpen = true
 
-        let pending = waiters
-        waiters.removeAll(keepingCapacity: false)
+        let pending = self.waiters
+        self.waiters.removeAll(keepingCapacity: false)
         pending.forEach { $0.resume() }
     }
 }
-
-

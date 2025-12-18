@@ -1,25 +1,23 @@
+import AppKit
+import ApplicationServices
+import Combine
 import Foundation
 import ServiceManagement
-import ApplicationServices
-import AppKit
-import Combine
 
-final class SettingsStore: ObservableObject
-{
+final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
     private let defaults = UserDefaults.standard
     private let keychain = KeychainService.shared
 
     private init() {
-        migrateProviderAPIKeysIfNeeded()
-        scrubSavedProviderAPIKeys()
+        self.migrateProviderAPIKeysIfNeeded()
+        self.scrubSavedProviderAPIKeys()
     }
 
     // Keys
-    private enum Keys
-    {
+    private enum Keys {
         static let enableAIProcessing = "EnableAIProcessing"
-         static let enableDebugLogs = "EnableDebugLogs"
+        static let enableDebugLogs = "EnableDebugLogs"
         static let availableAIModels = "AvailableAIModels"
         static let availableModelsByProvider = "AvailableModelsByProvider"
         static let selectedAIModel = "SelectedAIModel"
@@ -29,8 +27,8 @@ final class SettingsStore: ObservableObject
         static let providerAPIKeyIdentifiers = "ProviderAPIKeyIdentifiers"
         static let savedProviders = "SavedProviders"
         static let hotkeyShortcutKey = "HotkeyShortcutKey"
-         static let preferredInputDeviceUID = "PreferredInputDeviceUID"
-         static let preferredOutputDeviceUID = "PreferredOutputDeviceUID"
+        static let preferredInputDeviceUID = "PreferredInputDeviceUID"
+        static let preferredOutputDeviceUID = "PreferredOutputDeviceUID"
         static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"
         static let launchAtStartup = "LaunchAtStartup"
         static let showInDock = "ShowInDock"
@@ -41,58 +39,58 @@ final class SettingsStore: ObservableObject
         static let autoUpdateCheckEnabled = "AutoUpdateCheckEnabled"
         static let lastUpdateCheckDate = "LastUpdateCheckDate"
         static let playgroundUsed = "PlaygroundUsed"
-        
+
         // Command Mode Keys
         static let commandModeSelectedModel = "CommandModeSelectedModel"
         static let commandModeSelectedProviderID = "CommandModeSelectedProviderID"
         static let commandModeHotkeyShortcut = "CommandModeHotkeyShortcut"
         static let commandModeConfirmBeforeExecute = "CommandModeConfirmBeforeExecute"
         static let commandModeLinkedToGlobal = "CommandModeLinkedToGlobal"
-        
+
         // Rewrite Mode Keys
         static let rewriteModeHotkeyShortcut = "RewriteModeHotkeyShortcut"
         static let rewriteModeSelectedModel = "RewriteModeSelectedModel"
         static let rewriteModeSelectedProviderID = "RewriteModeSelectedProviderID"
         static let rewriteModeLinkedToGlobal = "RewriteModeLinkedToGlobal"
-        
+
         // Model Reasoning Config Keys
         static let modelReasoningConfigs = "ModelReasoningConfigs"
         static let showThinkingTokens = "ShowThinkingTokens"
-        
+
         // Stats Keys
         static let userTypingWPM = "UserTypingWPM"
 
         // Filler Words
         static let fillerWords = "FillerWords"
         static let removeFillerWordsEnabled = "RemoveFillerWordsEnabled"
-        
+
         // Transcription Provider (ASR)
         static let selectedTranscriptionProvider = "SelectedTranscriptionProvider"
         static let whisperModelSize = "WhisperModelSize"
-        
+
         // Unified Speech Model (replaces above two)
         static let selectedSpeechModel = "SelectedSpeechModel"
     }
-    
+
     // MARK: - Model Reasoning Configuration
-    
+
     /// Configuration for model-specific reasoning/thinking parameters
     struct ModelReasoningConfig: Codable, Equatable {
         /// The parameter name to use (e.g., "reasoning_effort", "enable_thinking", "thinking")
         var parameterName: String
-        
+
         /// The value to use for the parameter (e.g., "low", "medium", "high", "none", "true")
         var parameterValue: String
-        
+
         /// Whether this config is enabled (allows disabling without deleting)
         var isEnabled: Bool
-        
+
         init(parameterName: String = "reasoning_effort", parameterValue: String = "low", isEnabled: Bool = true) {
             self.parameterName = parameterName
             self.parameterValue = parameterValue
             self.isEnabled = isEnabled
         }
-        
+
         /// Common presets for different model types
         static let openAIGPT5 = ModelReasoningConfig(parameterName: "reasoning_effort", parameterValue: "low", isEnabled: true)
         static let openAIO1 = ModelReasoningConfig(parameterName: "reasoning_effort", parameterValue: "medium", isEnabled: true)
@@ -101,16 +99,14 @@ final class SettingsStore: ObservableObject
         static let disabled = ModelReasoningConfig(parameterName: "", parameterValue: "", isEnabled: false)
     }
 
-    struct SavedProvider: Codable, Identifiable, Hashable
-    {
+    struct SavedProvider: Codable, Identifiable, Hashable {
         let id: String
         let name: String
         let baseURL: String
         let apiKey: String
         let models: [String]
 
-        init(id: String = UUID().uuidString, name: String, baseURL: String, apiKey: String = "", models: [String] = [])
-        {
+        init(id: String = UUID().uuidString, name: String, baseURL: String, apiKey: String = "", models: [String] = []) {
             self.id = id
             self.name = name
             self.baseURL = baseURL
@@ -119,85 +115,78 @@ final class SettingsStore: ObservableObject
         }
     }
 
-    var enableAIProcessing: Bool
-    {
-        get { defaults.bool(forKey: Keys.enableAIProcessing) }
+    var enableAIProcessing: Bool {
+        get { self.defaults.bool(forKey: Keys.enableAIProcessing) }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.enableAIProcessing)
+            self.defaults.set(newValue, forKey: Keys.enableAIProcessing)
         }
     }
 
-    var availableModels: [String]
-    {
-        get { (defaults.array(forKey: Keys.availableAIModels) as? [String]) ?? [] }
+    var availableModels: [String] {
+        get { (self.defaults.array(forKey: Keys.availableAIModels) as? [String]) ?? [] }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.availableAIModels)
+            self.defaults.set(newValue, forKey: Keys.availableAIModels)
         }
     }
 
-    var availableModelsByProvider: [String: [String]]
-    {
-        get { (defaults.dictionary(forKey: Keys.availableModelsByProvider) as? [String: [String]]) ?? [:] }
+    var availableModelsByProvider: [String: [String]] {
+        get { (self.defaults.dictionary(forKey: Keys.availableModelsByProvider) as? [String: [String]]) ?? [:] }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.availableModelsByProvider)
+            self.defaults.set(newValue, forKey: Keys.availableModelsByProvider)
         }
     }
 
-     var enableDebugLogs: Bool
-     {
-         get { defaults.bool(forKey: Keys.enableDebugLogs) }
-         set {
-             objectWillChange.send()
-             defaults.set(newValue, forKey: Keys.enableDebugLogs)
-         }
-     }
-
-    var selectedModel: String?
-    {
-        get { defaults.string(forKey: Keys.selectedAIModel) }
+    var enableDebugLogs: Bool {
+        get { self.defaults.bool(forKey: Keys.enableDebugLogs) }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.selectedAIModel)
+            self.defaults.set(newValue, forKey: Keys.enableDebugLogs)
         }
     }
 
-    var selectedModelByProvider: [String: String]
-    {
-        get { (defaults.dictionary(forKey: Keys.selectedModelByProvider) as? [String: String]) ?? [:] }
+    var selectedModel: String? {
+        get { self.defaults.string(forKey: Keys.selectedAIModel) }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.selectedModelByProvider)
+            self.defaults.set(newValue, forKey: Keys.selectedAIModel)
+        }
+    }
+
+    var selectedModelByProvider: [String: String] {
+        get { (self.defaults.dictionary(forKey: Keys.selectedModelByProvider) as? [String: String]) ?? [:] }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.selectedModelByProvider)
         }
     }
 
     var providerAPIKeys: [String: String] {
-        get { (try? keychain.fetchAllKeys()) ?? [:] }
+        get { (try? self.keychain.fetchAllKeys()) ?? [:] }
         set {
             objectWillChange.send()
-            persistProviderAPIKeys(newValue)
+            self.persistProviderAPIKeys(newValue)
         }
     }
-    
+
     /// Securely retrieve API key for a provider, handling custom prefix logic
     func getAPIKey(for providerID: String) -> String? {
-        let keys = providerAPIKeys
+        let keys = self.providerAPIKeys
         // Try exact match first
         if let key = keys[providerID] { return key }
-        
+
         // Try canonical key format (custom:ID)
-        let canonical = canonicalProviderKey(for: providerID)
+        let canonical = self.canonicalProviderKey(for: providerID)
         return keys[canonical]
     }
 
-    var selectedProviderID: String
-    {
-        get { defaults.string(forKey: Keys.selectedProviderID) ?? "openai" }
+    var selectedProviderID: String {
+        get { self.defaults.string(forKey: Keys.selectedProviderID) ?? "openai" }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.selectedProviderID)
+            self.defaults.set(newValue, forKey: Keys.selectedProviderID)
         }
     }
 
@@ -211,22 +200,22 @@ final class SettingsStore: ObservableObject
             objectWillChange.send()
             let sanitized = newValue.map { provider -> SavedProvider in
                 if provider.apiKey.isEmpty { return provider }
-                return SavedProvider(id: provider.id,
-                                     name: provider.name,
-                                     baseURL: provider.baseURL,
-                                     apiKey: "",
-                                     models: provider.models)
+                return SavedProvider(
+                    id: provider.id,
+                    name: provider.name,
+                    baseURL: provider.baseURL,
+                    apiKey: "",
+                    models: provider.models
+                )
             }
             if let encoded = try? JSONEncoder().encode(sanitized) {
-                defaults.set(encoded, forKey: Keys.savedProviders)
+                self.defaults.set(encoded, forKey: Keys.savedProviders)
             }
         }
     }
 
-    var hotkeyShortcut: HotkeyShortcut
-    {
-        get
-        {
+    var hotkeyShortcut: HotkeyShortcut {
+        get {
             if let data = defaults.data(forKey: Keys.hotkeyShortcutKey),
                let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
             {
@@ -234,80 +223,69 @@ final class SettingsStore: ObservableObject
             }
             return HotkeyShortcut(keyCode: 61, modifierFlags: [])
         }
-        set
-        {
+        set {
             objectWillChange.send()
-            if let data = try? JSONEncoder().encode(newValue)
-            {
-                defaults.set(data, forKey: Keys.hotkeyShortcutKey)
+            if let data = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(data, forKey: Keys.hotkeyShortcutKey)
             }
         }
     }
 
-
-    var pressAndHoldMode: Bool
-    {
-        get { defaults.bool(forKey: Keys.pressAndHoldMode) }
-        set { defaults.set(newValue, forKey: Keys.pressAndHoldMode) }
+    var pressAndHoldMode: Bool {
+        get { self.defaults.bool(forKey: Keys.pressAndHoldMode) }
+        set { self.defaults.set(newValue, forKey: Keys.pressAndHoldMode) }
     }
 
-    var enableStreamingPreview: Bool
-    {
+    var enableStreamingPreview: Bool {
         get {
-            let value = defaults.object(forKey: Keys.enableStreamingPreview)
+            let value = self.defaults.object(forKey: Keys.enableStreamingPreview)
             return value as? Bool ?? true // Default to true (enabled)
         }
-        set { defaults.set(newValue, forKey: Keys.enableStreamingPreview) }
+        set { self.defaults.set(newValue, forKey: Keys.enableStreamingPreview) }
     }
 
-    var enableAIStreaming: Bool
-    {
+    var enableAIStreaming: Bool {
         get {
-            let value = defaults.object(forKey: Keys.enableAIStreaming)
+            let value = self.defaults.object(forKey: Keys.enableAIStreaming)
             return value as? Bool ?? false // Default to false (disabled)
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.enableAIStreaming)
+            self.defaults.set(newValue, forKey: Keys.enableAIStreaming)
         }
     }
 
-    var copyTranscriptionToClipboard: Bool
-    {
-        get { defaults.bool(forKey: Keys.copyTranscriptionToClipboard) }
-        set { defaults.set(newValue, forKey: Keys.copyTranscriptionToClipboard) }
+    var copyTranscriptionToClipboard: Bool {
+        get { self.defaults.bool(forKey: Keys.copyTranscriptionToClipboard) }
+        set { self.defaults.set(newValue, forKey: Keys.copyTranscriptionToClipboard) }
     }
 
-     var preferredInputDeviceUID: String?
-     {
-         get { defaults.string(forKey: Keys.preferredInputDeviceUID) }
-         set { defaults.set(newValue, forKey: Keys.preferredInputDeviceUID) }
-     }
+    var preferredInputDeviceUID: String? {
+        get { self.defaults.string(forKey: Keys.preferredInputDeviceUID) }
+        set { self.defaults.set(newValue, forKey: Keys.preferredInputDeviceUID) }
+    }
 
-     var preferredOutputDeviceUID: String?
-     {
-         get { defaults.string(forKey: Keys.preferredOutputDeviceUID) }
-         set { defaults.set(newValue, forKey: Keys.preferredOutputDeviceUID) }
-     }
-    
-    var visualizerNoiseThreshold: Double
-    {
+    var preferredOutputDeviceUID: String? {
+        get { self.defaults.string(forKey: Keys.preferredOutputDeviceUID) }
+        set { self.defaults.set(newValue, forKey: Keys.preferredOutputDeviceUID) }
+    }
+
+    var visualizerNoiseThreshold: Double {
         get {
-            let value = defaults.double(forKey: Keys.visualizerNoiseThreshold)
+            let value = self.defaults.double(forKey: Keys.visualizerNoiseThreshold)
             return value == 0.0 ? 0.4 : value // Default to 0.4 if not set
         }
-        set { defaults.set(newValue, forKey: Keys.visualizerNoiseThreshold) }
+        set { self.defaults.set(newValue, forKey: Keys.visualizerNoiseThreshold) }
     }
 
     // MARK: - Preferences Settings
 
-    var launchAtStartup: Bool
-    {
-        get { defaults.bool(forKey: Keys.launchAtStartup) }
+    var launchAtStartup: Bool {
+        get { self.defaults.bool(forKey: Keys.launchAtStartup) }
         set {
-            defaults.set(newValue, forKey: Keys.launchAtStartup)
+            self.defaults.set(newValue, forKey: Keys.launchAtStartup)
             // Update launch agent registration
-            updateLaunchAtStartup(newValue)
+            self.updateLaunchAtStartup(newValue)
         }
     }
 
@@ -316,7 +294,7 @@ final class SettingsStore: ObservableObject
     func initializeAppSettings() {
         #if os(macOS)
         // Apply dock visibility setting on app launch
-        let dockVisible = showInDock
+        let dockVisible = self.showInDock
         DebugLogger.shared.info("Initializing app with dock visibility: \(dockVisible)", source: "SettingsStore")
 
         // Set activation policy based on saved preference
@@ -326,97 +304,89 @@ final class SettingsStore: ObservableObject
         #endif
     }
 
-    var showInDock: Bool
-    {
+    var showInDock: Bool {
         get {
-            let value = defaults.object(forKey: Keys.showInDock)
+            let value = self.defaults.object(forKey: Keys.showInDock)
             return value as? Bool ?? true // Default to true if not set
         }
         set {
-            defaults.set(newValue, forKey: Keys.showInDock)
+            self.defaults.set(newValue, forKey: Keys.showInDock)
             // Update dock visibility
-            updateDockVisibility(newValue)
+            self.updateDockVisibility(newValue)
         }
     }
 
-    var autoUpdateCheckEnabled: Bool
-    {
+    var autoUpdateCheckEnabled: Bool {
         get {
-            let value = defaults.object(forKey: Keys.autoUpdateCheckEnabled)
+            let value = self.defaults.object(forKey: Keys.autoUpdateCheckEnabled)
             return value as? Bool ?? true // Default to enabled
         }
         set {
-            defaults.set(newValue, forKey: Keys.autoUpdateCheckEnabled)
+            self.defaults.set(newValue, forKey: Keys.autoUpdateCheckEnabled)
         }
     }
 
-    var lastUpdateCheckDate: Date?
-    {
+    var lastUpdateCheckDate: Date? {
         get {
-            return defaults.object(forKey: Keys.lastUpdateCheckDate) as? Date
+            return self.defaults.object(forKey: Keys.lastUpdateCheckDate) as? Date
         }
         set {
-            defaults.set(newValue, forKey: Keys.lastUpdateCheckDate)
+            self.defaults.set(newValue, forKey: Keys.lastUpdateCheckDate)
         }
     }
 
     // MARK: - Update Check Helper
 
     func shouldCheckForUpdates() -> Bool {
-        guard autoUpdateCheckEnabled else { return false }
-        
+        guard self.autoUpdateCheckEnabled else { return false }
+
         guard let lastCheck = lastUpdateCheckDate else {
             // Never checked before, should check
             return true
         }
-        
+
         // Check if more than 24 hours have passed
         let dayInSeconds: TimeInterval = 24 * 60 * 60
         return Date().timeIntervalSince(lastCheck) >= dayInSeconds
     }
 
     func updateLastCheckDate() {
-        lastUpdateCheckDate = Date()
+        self.lastUpdateCheckDate = Date()
     }
 
     var playgroundUsed: Bool {
-        get { defaults.bool(forKey: Keys.playgroundUsed) }
-        set { defaults.set(newValue, forKey: Keys.playgroundUsed) }
+        get { self.defaults.bool(forKey: Keys.playgroundUsed) }
+        set { self.defaults.set(newValue, forKey: Keys.playgroundUsed) }
     }
-    
+
     // MARK: - Command Mode Settings
-    
-    var commandModeSelectedModel: String?
-    {
-        get { defaults.string(forKey: Keys.commandModeSelectedModel) }
+
+    var commandModeSelectedModel: String? {
+        get { self.defaults.string(forKey: Keys.commandModeSelectedModel) }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.commandModeSelectedModel)
+            self.defaults.set(newValue, forKey: Keys.commandModeSelectedModel)
         }
     }
-    
-    var commandModeSelectedProviderID: String
-    {
-        get { defaults.string(forKey: Keys.commandModeSelectedProviderID) ?? "openai" }
+
+    var commandModeSelectedProviderID: String {
+        get { self.defaults.string(forKey: Keys.commandModeSelectedProviderID) ?? "openai" }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.commandModeSelectedProviderID)
+            self.defaults.set(newValue, forKey: Keys.commandModeSelectedProviderID)
         }
     }
-    
-    var commandModeLinkedToGlobal: Bool
-    {
-        get { defaults.bool(forKey: Keys.commandModeLinkedToGlobal) } // Default to false (let user opt-in, or true if preferred)
+
+    var commandModeLinkedToGlobal: Bool {
+        get { self.defaults.bool(forKey: Keys.commandModeLinkedToGlobal) } // Default to false (let user opt-in, or true if preferred)
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.commandModeLinkedToGlobal)
+            self.defaults.set(newValue, forKey: Keys.commandModeLinkedToGlobal)
         }
     }
-    
-    var commandModeHotkeyShortcut: HotkeyShortcut
-    {
-        get
-        {
+
+    var commandModeHotkeyShortcut: HotkeyShortcut {
+        get {
             if let data = defaults.data(forKey: Keys.commandModeHotkeyShortcut),
                let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
             {
@@ -425,35 +395,30 @@ final class SettingsStore: ObservableObject
             // Default to Right Command key (keyCode: 54, no modifiers for the key itself)
             return HotkeyShortcut(keyCode: 54, modifierFlags: [])
         }
-        set
-        {
+        set {
             objectWillChange.send()
-            if let data = try? JSONEncoder().encode(newValue)
-            {
-                defaults.set(data, forKey: Keys.commandModeHotkeyShortcut)
+            if let data = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(data, forKey: Keys.commandModeHotkeyShortcut)
             }
         }
     }
-    
-    var commandModeConfirmBeforeExecute: Bool
-    {
+
+    var commandModeConfirmBeforeExecute: Bool {
         get {
             // Default to true (safer - ask before running commands)
-            let value = defaults.object(forKey: Keys.commandModeConfirmBeforeExecute)
+            let value = self.defaults.object(forKey: Keys.commandModeConfirmBeforeExecute)
             return value as? Bool ?? true
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.commandModeConfirmBeforeExecute)
+            self.defaults.set(newValue, forKey: Keys.commandModeConfirmBeforeExecute)
         }
     }
-    
+
     // MARK: - Rewrite Mode Settings
-    
-    var rewriteModeHotkeyShortcut: HotkeyShortcut
-    {
-        get
-        {
+
+    var rewriteModeHotkeyShortcut: HotkeyShortcut {
+        get {
             if let data = defaults.data(forKey: Keys.rewriteModeHotkeyShortcut),
                let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
             {
@@ -462,56 +427,51 @@ final class SettingsStore: ObservableObject
             // Default to Option+R (keyCode: 15 is R, with Option modifier)
             return HotkeyShortcut(keyCode: 15, modifierFlags: [.option])
         }
-        set
-        {
+        set {
             objectWillChange.send()
-            if let data = try? JSONEncoder().encode(newValue)
-            {
-                defaults.set(data, forKey: Keys.rewriteModeHotkeyShortcut)
+            if let data = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(data, forKey: Keys.rewriteModeHotkeyShortcut)
             }
         }
     }
-    
-    var rewriteModeSelectedModel: String?
-    {
-        get { defaults.string(forKey: Keys.rewriteModeSelectedModel) }
+
+    var rewriteModeSelectedModel: String? {
+        get { self.defaults.string(forKey: Keys.rewriteModeSelectedModel) }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.rewriteModeSelectedModel)
+            self.defaults.set(newValue, forKey: Keys.rewriteModeSelectedModel)
         }
     }
-    
-    var rewriteModeSelectedProviderID: String
-    {
-        get { defaults.string(forKey: Keys.rewriteModeSelectedProviderID) ?? "openai" }
+
+    var rewriteModeSelectedProviderID: String {
+        get { self.defaults.string(forKey: Keys.rewriteModeSelectedProviderID) ?? "openai" }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.rewriteModeSelectedProviderID)
+            self.defaults.set(newValue, forKey: Keys.rewriteModeSelectedProviderID)
         }
     }
-    
-    var rewriteModeLinkedToGlobal: Bool
-    {
+
+    var rewriteModeLinkedToGlobal: Bool {
         get {
             // Default to true - sync with global settings by default
-            let value = defaults.object(forKey: Keys.rewriteModeLinkedToGlobal)
+            let value = self.defaults.object(forKey: Keys.rewriteModeLinkedToGlobal)
             return value as? Bool ?? true
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.rewriteModeLinkedToGlobal)
+            self.defaults.set(newValue, forKey: Keys.rewriteModeLinkedToGlobal)
         }
     }
-    
+
     // MARK: - Model Reasoning Configuration
-    
+
     /// Per-model reasoning configuration storage
     /// Key format: "provider:model" (e.g., "openai:gpt-5.1", "groq:gpt-oss-120b")
-    var modelReasoningConfigs: [String: ModelReasoningConfig]
-    {
+    var modelReasoningConfigs: [String: ModelReasoningConfig] {
         get {
             guard let data = defaults.data(forKey: Keys.modelReasoningConfigs),
-                  let decoded = try? JSONDecoder().decode([String: ModelReasoningConfig].self, from: data) else {
+                  let decoded = try? JSONDecoder().decode([String: ModelReasoningConfig].self, from: data)
+            else {
                 return [:]
             }
             return decoded
@@ -519,142 +479,141 @@ final class SettingsStore: ObservableObject
         set {
             objectWillChange.send()
             if let encoded = try? JSONEncoder().encode(newValue) {
-                defaults.set(encoded, forKey: Keys.modelReasoningConfigs)
+                self.defaults.set(encoded, forKey: Keys.modelReasoningConfigs)
             }
         }
     }
-    
+
     /// Get reasoning config for a specific model, with smart defaults for known models
     func getReasoningConfig(forModel model: String, provider: String) -> ModelReasoningConfig? {
         let key = "\(provider):\(model)"
-        
+
         // First check if user has a custom config
         if let customConfig = modelReasoningConfigs[key] {
             return customConfig.isEnabled ? customConfig : nil
         }
-        
+
         // Apply smart defaults for known model patterns
         let modelLower = model.lowercased()
-        
+
         // OpenAI gpt-5.x models
         if modelLower.hasPrefix("gpt-5") || modelLower.contains("gpt-5.") {
             return .openAIGPT5
         }
-        
+
         // OpenAI o1/o3 reasoning models
         if modelLower.hasPrefix("o1") || modelLower.hasPrefix("o3") {
             return .openAIO1
         }
-        
+
         // Groq gpt-oss models
         if modelLower.contains("gpt-oss") || modelLower.hasPrefix("openai/") {
             return .groqGPTOSS
         }
-        
+
         // DeepSeek reasoner models
-        if modelLower.contains("deepseek") && modelLower.contains("reasoner") {
+        if modelLower.contains("deepseek"), modelLower.contains("reasoner") {
             return .deepSeekReasoner
         }
-        
+
         // No reasoning config needed for standard models (gpt-4.x, claude, llama, etc.)
         return nil
     }
-    
+
     /// Set reasoning config for a specific model
     func setReasoningConfig(_ config: ModelReasoningConfig?, forModel model: String, provider: String) {
         let key = "\(provider):\(model)"
-        var configs = modelReasoningConfigs
-        
+        var configs = self.modelReasoningConfigs
+
         if let config = config {
             configs[key] = config
         } else {
             configs.removeValue(forKey: key)
         }
-        
-        modelReasoningConfigs = configs
+
+        self.modelReasoningConfigs = configs
     }
-    
+
     /// Check if a model has a custom (user-defined) reasoning config
     func hasCustomReasoningConfig(forModel model: String, provider: String) -> Bool {
         let key = "\(provider):\(model)"
-        return modelReasoningConfigs[key] != nil
+        return self.modelReasoningConfigs[key] != nil
     }
-    
+
     /// Global check if a model is a reasoning model (requires special params/max_completion_tokens)
     func isReasoningModel(_ model: String) -> Bool {
         let modelLower = model.lowercased()
-        return modelLower.hasPrefix("gpt-5") || 
-               modelLower.contains("gpt-5.") ||
-               modelLower.hasPrefix("o1") || 
-               modelLower.hasPrefix("o3") ||
-               modelLower.contains("gpt-oss") || 
-               modelLower.hasPrefix("openai/") ||
-               (modelLower.contains("deepseek") && modelLower.contains("reasoner"))
+        return modelLower.hasPrefix("gpt-5") ||
+            modelLower.contains("gpt-5.") ||
+            modelLower.hasPrefix("o1") ||
+            modelLower.hasPrefix("o3") ||
+            modelLower.contains("gpt-oss") ||
+            modelLower.hasPrefix("openai/") ||
+            (modelLower.contains("deepseek") && modelLower.contains("reasoner"))
     }
-    
-    
+
     /// Whether to display thinking tokens in the UI (Command Mode, Rewrite Mode)
     /// If false, thinking tokens are extracted but not shown to user
-    var showThinkingTokens: Bool
-    {
+    var showThinkingTokens: Bool {
         get {
-            let value = defaults.object(forKey: Keys.showThinkingTokens)
-            return value as? Bool ?? true  // Default to true (show thinking)
+            let value = self.defaults.object(forKey: Keys.showThinkingTokens)
+            return value as? Bool ?? true // Default to true (show thinking)
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.showThinkingTokens)
+            self.defaults.set(newValue, forKey: Keys.showThinkingTokens)
         }
     }
-    
+
     // MARK: - Stats Settings
-    
+
     /// User's typing speed in words per minute (for time saved calculation)
-    var userTypingWPM: Int
-    {
+    var userTypingWPM: Int {
         get {
-            let value = defaults.integer(forKey: Keys.userTypingWPM)
-            return value > 0 ? value : 40  // Default to 40 WPM
+            let value = self.defaults.integer(forKey: Keys.userTypingWPM)
+            return value > 0 ? value : 40 // Default to 40 WPM
         }
         set {
             objectWillChange.send()
-            defaults.set(max(1, min(200, newValue)), forKey: Keys.userTypingWPM)  // Clamp 1-200
+            self.defaults.set(max(1, min(200, newValue)), forKey: Keys.userTypingWPM) // Clamp 1-200
         }
     }
 
     // MARK: - Private Methods
 
     private func persistProviderAPIKeys(_ values: [String: String]) {
-        let trimmed = sanitizeAPIKeys(values)
+        let trimmed = self.sanitizeAPIKeys(values)
         do {
-            try keychain.storeAllKeys(trimmed)
+            try self.keychain.storeAllKeys(trimmed)
         } catch {
             DebugLogger.shared.error("Failed to persist provider API keys: \(error.localizedDescription)", source: "SettingsStore")
         }
     }
 
     private func migrateProviderAPIKeysIfNeeded() {
-        defaults.removeObject(forKey: Keys.providerAPIKeyIdentifiers)
+        self.defaults.removeObject(forKey: Keys.providerAPIKeyIdentifiers)
 
-        var merged = (try? keychain.fetchAllKeys()) ?? [:]
+        var merged = (try? self.keychain.fetchAllKeys()) ?? [:]
         var didMutate = false
 
         if let legacyDefaults = defaults.dictionary(forKey: Keys.providerAPIKeys) as? [String: String],
-           legacyDefaults.isEmpty == false {
-            merged.merge(sanitizeAPIKeys(legacyDefaults)) { _, new in new }
+           legacyDefaults.isEmpty == false
+        {
+            merged.merge(self.sanitizeAPIKeys(legacyDefaults)) { _, new in new }
             didMutate = true
         }
-        defaults.removeObject(forKey: Keys.providerAPIKeys)
+        self.defaults.removeObject(forKey: Keys.providerAPIKeys)
 
         if let legacyKeychain = try? keychain.legacyProviderEntries(),
-           legacyKeychain.isEmpty == false {
-            merged.merge(sanitizeAPIKeys(legacyKeychain)) { _, new in new }
+           legacyKeychain.isEmpty == false
+        {
+            merged.merge(self.sanitizeAPIKeys(legacyKeychain)) { _, new in new }
             didMutate = true
-            try? keychain.removeLegacyEntries(providerIDs: Array(legacyKeychain.keys))
+            try? self.keychain.removeLegacyEntries(providerIDs: Array(legacyKeychain.keys))
         }
 
         if didMutate {
-            persistProviderAPIKeys(merged)
+            self.persistProviderAPIKeys(merged)
         }
     }
 
@@ -668,24 +627,27 @@ final class SettingsStore: ObservableObject
             let trimmed = provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.isEmpty == false else { continue }
 
-            let keyID = canonicalProviderKey(for: provider.id)
+            let keyID = self.canonicalProviderKey(for: provider.id)
             do {
-                try keychain.storeKey(trimmed, for: keyID)
+                try self.keychain.storeKey(trimmed, for: keyID)
                 didModify = true
             } catch {
                 DebugLogger.shared.error("Failed to migrate API key for \(provider.name): \(error.localizedDescription)", source: "SettingsStore")
             }
 
-            decoded[index] = SavedProvider(id: provider.id,
-                                           name: provider.name,
-                                           baseURL: provider.baseURL,
-                                           apiKey: "",
-                                           models: provider.models)
+            decoded[index] = SavedProvider(
+                id: provider.id,
+                name: provider.name,
+                baseURL: provider.baseURL,
+                apiKey: "",
+                models: provider.models
+            )
         }
 
         if didModify,
-           let encoded = try? JSONEncoder().encode(decoded) {
-            defaults.set(encoded, forKey: Keys.savedProviders)
+           let encoded = try? JSONEncoder().encode(decoded)
+        {
+            self.defaults.set(encoded, forKey: Keys.savedProviders)
         }
 
         // No need to track migrated IDs; consolidated storage keeps them together.
@@ -745,7 +707,7 @@ final class SettingsStore: ObservableObject
 
         // Method 1: Try the deprecated TransformProcessType (may not work on all systems)
         let transformState = visible ? ProcessApplicationTransformState(kProcessTransformToForegroundApplication)
-                                     : ProcessApplicationTransformState(kProcessTransformToUIElementApplication)
+            : ProcessApplicationTransformState(kProcessTransformToUIElementApplication)
 
         var psn = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: UInt32(kCurrentProcess))
         let result = TransformProcessType(&psn, transformState)
@@ -783,38 +745,40 @@ final class SettingsStore: ObservableObject
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.fillerWords)
+            self.defaults.set(newValue, forKey: Keys.fillerWords)
         }
     }
 
     var removeFillerWordsEnabled: Bool {
-        get { defaults.object(forKey: Keys.removeFillerWordsEnabled) as? Bool ?? true }
+        get { self.defaults.object(forKey: Keys.removeFillerWordsEnabled) as? Bool ?? true }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.removeFillerWordsEnabled)
+            self.defaults.set(newValue, forKey: Keys.removeFillerWordsEnabled)
         }
     }
-    
+
     // MARK: - Speech Model (Unified ASR Model Selection)
-    
+
     /// Unified speech recognition model selection.
     /// Replaces the old TranscriptionProviderOption + WhisperModelSize dual-setting.
     enum SpeechModel: String, CaseIterable, Identifiable, Codable {
         // MARK: - FluidAudio Models (Apple Silicon Only)
+
         case parakeetTDT = "parakeet-tdt"
-        
+
         // MARK: - Whisper Models (Universal)
+
         case whisperTiny = "whisper-tiny"
         case whisperBase = "whisper-base"
         case whisperSmall = "whisper-small"
         case whisperMedium = "whisper-medium"
         case whisperLargeTurbo = "whisper-large-turbo"
         case whisperLarge = "whisper-large"
-        
+
         var id: String { rawValue }
-        
+
         // MARK: - Display Properties
-        
+
         var displayName: String {
             switch self {
             case .parakeetTDT: return "Parakeet TDT"
@@ -826,7 +790,7 @@ final class SettingsStore: ObservableObject
             case .whisperLarge: return "Whisper Large"
             }
         }
-        
+
         var languageSupport: String {
             switch self {
             case .parakeetTDT: return "25 Languages"
@@ -834,7 +798,7 @@ final class SettingsStore: ObservableObject
                 return "99 Languages"
             }
         }
-        
+
         var downloadSize: String {
             switch self {
             case .parakeetTDT: return "~500 MB"
@@ -846,21 +810,21 @@ final class SettingsStore: ObservableObject
             case .whisperLarge: return "~2.9 GB"
             }
         }
-        
+
         var requiresAppleSilicon: Bool {
             switch self {
             case .parakeetTDT: return true
             default: return false
             }
         }
-        
+
         var isWhisperModel: Bool {
             switch self {
             case .parakeetTDT: return false
             default: return true
             }
         }
-        
+
         /// The ggml filename for Whisper models
         var whisperModelFile: String? {
             switch self {
@@ -873,7 +837,7 @@ final class SettingsStore: ObservableObject
             default: return nil
             }
         }
-        
+
         /// The short model name for whisper.cpp internal usage
         var whisperModelName: String? {
             switch self {
@@ -886,32 +850,32 @@ final class SettingsStore: ObservableObject
             default: return nil
             }
         }
-        
+
         // MARK: - Architecture Filtering
-        
+
         /// Returns models available for the current Mac's architecture
         static var availableModels: [SpeechModel] {
             allCases.filter { model in
                 !model.requiresAppleSilicon || CPUArchitecture.isAppleSilicon
             }
         }
-        
+
         /// Default model for the current architecture
         static var defaultModel: SpeechModel {
             CPUArchitecture.isAppleSilicon ? .parakeetTDT : .whisperBase
         }
     }
-    
+
     // MARK: - Transcription Provider (ASR)
-    
+
     /// Available transcription providers
     enum TranscriptionProviderOption: String, CaseIterable, Identifiable {
-        case auto = "auto"
-        case fluidAudio = "fluidAudio"
-        case whisper = "whisper"
-        
+        case auto
+        case fluidAudio
+        case whisper
+
         var id: String { rawValue }
-        
+
         var displayName: String {
             switch self {
             case .auto: return "Automatic (Recommended)"
@@ -919,7 +883,7 @@ final class SettingsStore: ObservableObject
             case .whisper: return "Whisper (Intel/Universal)"
             }
         }
-        
+
         var description: String {
             switch self {
             case .auto: return "Uses FluidAudio on Apple Silicon, Whisper on Intel"
@@ -928,7 +892,7 @@ final class SettingsStore: ObservableObject
             }
         }
     }
-    
+
     /// Available Whisper model sizes
     enum WhisperModelSize: String, CaseIterable, Identifiable {
         case tiny = "ggml-tiny.bin"
@@ -936,9 +900,9 @@ final class SettingsStore: ObservableObject
         case small = "ggml-small.bin"
         case medium = "ggml-medium.bin"
         case large = "ggml-large-v3.bin"
-        
+
         var id: String { rawValue }
-        
+
         var displayName: String {
             switch self {
             case .tiny: return "Tiny (~75 MB)"
@@ -948,7 +912,7 @@ final class SettingsStore: ObservableObject
             case .large: return "Large (~2.9 GB)"
             }
         }
-        
+
         var description: String {
             switch self {
             case .tiny: return "Fastest, lower accuracy"
@@ -959,69 +923,72 @@ final class SettingsStore: ObservableObject
             }
         }
     }
-    
+
     /// Selected transcription provider - defaults to "auto" which picks based on architecture
     var selectedTranscriptionProvider: TranscriptionProviderOption {
         get {
             guard let rawValue = defaults.string(forKey: Keys.selectedTranscriptionProvider),
-                  let option = TranscriptionProviderOption(rawValue: rawValue) else {
+                  let option = TranscriptionProviderOption(rawValue: rawValue)
+            else {
                 return .auto
             }
             return option
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue.rawValue, forKey: Keys.selectedTranscriptionProvider)
+            self.defaults.set(newValue.rawValue, forKey: Keys.selectedTranscriptionProvider)
         }
     }
-    
+
     /// Selected Whisper model size - defaults to "base"
     var whisperModelSize: WhisperModelSize {
         get {
             guard let rawValue = defaults.string(forKey: Keys.whisperModelSize),
-                  let size = WhisperModelSize(rawValue: rawValue) else {
+                  let size = WhisperModelSize(rawValue: rawValue)
+            else {
                 return .base
             }
             return size
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue.rawValue, forKey: Keys.whisperModelSize)
+            self.defaults.set(newValue.rawValue, forKey: Keys.whisperModelSize)
         }
     }
-    
+
     // MARK: - Unified Speech Model Selection
-    
+
     /// The selected speech recognition model.
     /// This unified setting replaces the old TranscriptionProviderOption + WhisperModelSize combination.
     var selectedSpeechModel: SpeechModel {
         get {
             // Check if already using new system
             if let rawValue = defaults.string(forKey: Keys.selectedSpeechModel),
-               let model = SpeechModel(rawValue: rawValue) {
+               let model = SpeechModel(rawValue: rawValue)
+            {
                 // Validate model is available on this architecture
                 if model.requiresAppleSilicon && !CPUArchitecture.isAppleSilicon {
                     return .whisperBase
                 }
                 return model
             }
-            
+
             // Migration: Convert old settings to new SpeechModel
-            return migrateToSpeechModel()
+            return self.migrateToSpeechModel()
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue.rawValue, forKey: Keys.selectedSpeechModel)
+            self.defaults.set(newValue.rawValue, forKey: Keys.selectedSpeechModel)
         }
     }
-    
+
     /// Migrates old TranscriptionProviderOption + WhisperModelSize settings to new SpeechModel
     private func migrateToSpeechModel() -> SpeechModel {
-        let oldProvider = defaults.string(forKey: Keys.selectedTranscriptionProvider) ?? "auto"
-        let oldWhisperSize = defaults.string(forKey: Keys.whisperModelSize) ?? "ggml-base.bin"
-        
+        let oldProvider = self.defaults.string(forKey: Keys.selectedTranscriptionProvider) ?? "auto"
+        let oldWhisperSize = self.defaults.string(forKey: Keys.whisperModelSize) ?? "ggml-base.bin"
+
         let newModel: SpeechModel
-        
+
         switch oldProvider {
         case "whisper":
             // Map old whisper size to new model
@@ -1038,11 +1005,11 @@ final class SettingsStore: ObservableObject
         default: // "auto"
             newModel = SpeechModel.defaultModel
         }
-        
+
         // Persist the migrated value
-        defaults.set(newModel.rawValue, forKey: Keys.selectedSpeechModel)
+        self.defaults.set(newModel.rawValue, forKey: Keys.selectedSpeechModel)
         DebugLogger.shared.info("Migrated speech model settings: \(oldProvider)/\(oldWhisperSize) -> \(newModel.rawValue)", source: "SettingsStore")
-        
+
         return newModel
     }
 }

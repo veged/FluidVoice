@@ -1,12 +1,12 @@
-import Foundation
+import Accelerate
 import AVFoundation
 import Combine
-import Accelerate
+import Foundation
 #if arch(arm64)
 import FluidAudio
 #endif
-import CoreAudio
 import AppKit
+import CoreAudio
 
 /// Serializes all CoreML transcription operations to prevent concurrent access issues.
 /// The actor ensures only one transcription runs at a time, preventing CoreML race conditions.
@@ -16,12 +16,12 @@ private actor TranscriptionExecutor {
     private var lastTask: Task<Void, Never>?
 
     func run<T>(_ operation: @escaping () async throws -> T) async throws -> T {
-        let previous = lastTask
+        let previous = self.lastTask
         let task = Task<T, Error> {
             _ = await previous?.result
             return try await operation()
         }
-        lastTask = Task { _ = try? await task.value }
+        self.lastTask = Task { _ = try? await task.value }
         return try await task.value
     }
 }
@@ -48,8 +48,8 @@ private actor TranscriptionExecutor {
 ///
 /// ## Language Support
 /// The service automatically detects and transcribes 25 European languages with Parakeet TDT v3:
-/// Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, 
-/// Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, 
+/// Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German,
+/// Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian,
 /// Slovak, Slovenian, Spanish, Swedish, Russian, and Ukrainian.
 ///
 /// No manual language selection is required - the model automatically detects the spoken language.
@@ -61,93 +61,92 @@ private actor TranscriptionExecutor {
 /// The service automatically downloads and manages ASR models from Hugging Face.
 /// Models are cached locally to avoid repeated downloads.
 @MainActor
-final class ASRService: ObservableObject
-{
+final class ASRService: ObservableObject {
     @Published var isRunning: Bool = false
     @Published var finalText: String = ""
     @Published var partialTranscription: String = ""
     @Published var micStatus: AVAuthorizationStatus = .notDetermined
     @Published var isAsrReady: Bool = false
     @Published var isDownloadingModel: Bool = false
-    @Published var isLoadingModel: Bool = false  // True when loading cached model into memory (not downloading)
+    @Published var isLoadingModel: Bool = false // True when loading cached model into memory (not downloading)
     @Published var modelsExistOnDisk: Bool = false
-    
+
     // MARK: - Error Handling
+
     @Published var errorTitle: String = "Error"
     @Published var errorMessage: String = ""
     @Published var showError: Bool = false
-    
+
     /// Returns a user-friendly status message for model loading state
     var modelStatusMessage: String {
-        if isAsrReady { return "Model ready" }
-        if isDownloadingModel { return "Downloading model..." }
-        if isLoadingModel { return "Loading model into memory..." }
-        if modelsExistOnDisk { return "Model cached, needs loading" }
+        if self.isAsrReady { return "Model ready" }
+        if self.isDownloadingModel { return "Downloading model..." }
+        if self.isLoadingModel { return "Loading model into memory..." }
+        if self.modelsExistOnDisk { return "Model cached, needs loading" }
         return "Model not downloaded"
     }
-    
+
     // MARK: - Transcription Provider (Settable)
-    
+
     /// Cached providers to avoid re-instantiation
     private var fluidAudioProvider: FluidAudioProvider?
     private var whisperProvider: WhisperProvider?
-    
+
     /// Prevent concurrent provider.prepare() calls (download/load) from overlapping.
     /// Subsequent callers await the in-flight task.
     private var ensureReadyTask: Task<Void, Error>?
     private var ensureReadyProviderKey: String?
-    
+
     /// The transcription provider, selected based on the unified SpeechModel setting.
     /// Uses the new SettingsStore.selectedSpeechModel instead of old TranscriptionProviderOption.
     private var transcriptionProvider: TranscriptionProvider {
         let model = SettingsStore.shared.selectedSpeechModel
-        
+
         if model.isWhisperModel {
-            return getWhisperProvider()
+            return self.getWhisperProvider()
         } else {
-            return getFluidAudioProvider()
+            return self.getFluidAudioProvider()
         }
     }
-    
+
     private func getFluidAudioProvider() -> FluidAudioProvider {
         if let existing = fluidAudioProvider {
             return existing
         }
         let provider = FluidAudioProvider()
-        fluidAudioProvider = provider
+        self.fluidAudioProvider = provider
         DebugLogger.shared.info("ASRService: Created FluidAudio provider", source: "ASRService")
         return provider
     }
-    
+
     private func getWhisperProvider() -> WhisperProvider {
         if let existing = whisperProvider {
             return existing
         }
         let provider = WhisperProvider()
-        whisperProvider = provider
+        self.whisperProvider = provider
         DebugLogger.shared.info("ASRService: Created Whisper provider", source: "ASRService")
         return provider
     }
-    
+
     /// Returns the user-friendly name of the currently selected speech model
     var activeProviderName: String {
         SettingsStore.shared.selectedSpeechModel.displayName
     }
-    
+
     /// Call this when the transcription provider setting changes to reset state
     func resetTranscriptionProvider() {
-        isAsrReady = false
-        modelsExistOnDisk = false
-        ensureReadyTask?.cancel()
-        ensureReadyTask = nil
-        ensureReadyProviderKey = nil
+        self.isAsrReady = false
+        self.modelsExistOnDisk = false
+        self.ensureReadyTask?.cancel()
+        self.ensureReadyTask = nil
+        self.ensureReadyProviderKey = nil
         DebugLogger.shared.info("ASRService: Provider reset, will re-initialize on next use", source: "ASRService")
-        
+
         // CRITICAL FIX: Immediately check if the NEW model's files exist on disk
         // This prevents UI from showing "Download" when model is already downloaded
-        checkIfModelsExist()
+        self.checkIfModelsExist()
     }
-
 
     // CRITICAL FIX (launch-time crash mitigation):
     // Combine's default ObservableObject.objectWillChange implementation uses Swift reflection to walk *stored*
@@ -166,9 +165,10 @@ final class ASRService: ObservableObject
             return existing
         }
         let created = AVAudioEngine()
-        engineStorage = created
+        self.engineStorage = created
         return created
     }
+
     private var inputFormat: AVAudioFormat?
     private var micPermissionGranted = false
 
@@ -176,7 +176,7 @@ final class ASRService: ObservableObject
     // Note: Only available when using FluidAudioProvider (Apple Silicon)
     #if arch(arm64)
     var asrManager: AsrManager? {
-        (transcriptionProvider as? FluidAudioProvider)?.underlyingManager
+        (self.transcriptionProvider as? FluidAudioProvider)?.underlyingManager
     }
     #else
     var asrManager: Any? { nil }
@@ -190,24 +190,23 @@ final class ASRService: ObservableObject
     // Streaming transcription state (no VAD)
     private var streamingTask: Task<Void, Never>?
     private var lastProcessedSampleCount: Int = 0
-    private let chunkDurationSeconds: Double = 0.6  // Fast interval - TranscriptionExecutor actor handles CoreML serialization
+    private let chunkDurationSeconds: Double = 0.6 // Fast interval - TranscriptionExecutor actor handles CoreML serialization
     private var isProcessingChunk: Bool = false
     private var skipNextChunk: Bool = false
     private var previousFullTranscription: String = ""
     private let transcriptionExecutor = TranscriptionExecutor() // Serializes all CoreML access
 
     private var audioLevelSubject = PassthroughSubject<CGFloat, Never>()
-    var audioLevelPublisher: AnyPublisher<CGFloat, Never> { audioLevelSubject.eraseToAnyPublisher() }
+    var audioLevelPublisher: AnyPublisher<CGFloat, Never> { self.audioLevelSubject.eraseToAnyPublisher() }
     private var lastAudioLevelSentAt: TimeInterval = 0
-    
+
     // Audio smoothing properties - lighter smoothing for real-time response
     private var audioLevelHistory: [CGFloat] = []
     private var smoothedLevel: CGFloat = 0.0
     private let historySize = 2 // Reduced for faster response
     private let silenceThreshold: CGFloat = 0.04 // Reasonable default
     private let noiseGateThreshold: CGFloat = 0.06
-    init()
-    {
+    init() {
         // CRITICAL FIX: Do NOT call any framework-triggering APIs here!
         // This includes:
         // - AVCaptureDevice.authorizationStatus (triggers AVFCapture/CoreAudio)
@@ -221,21 +220,21 @@ final class ASRService: ObservableObject
         // - micPermissionGranted = false
         // - modelsExistOnDisk = false
     }
-    
+
     /// Call this AFTER the app has finished launching to complete ASR initialization.
     /// This must be called from onAppear or later, never during init.
     func initialize() {
         // Check microphone permission (deferred from init to avoid AVFCapture race condition)
         self.micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         self.micPermissionGranted = (self.micStatus == .authorized)
-        
-        registerDefaultDeviceChangeListener()
-        
+
+        self.registerDefaultDeviceChangeListener()
+
         // Check if models exist on disk (deferred from init to avoid FluidAudio/CoreML race)
-        checkIfModelsExist()
-        
+        self.checkIfModelsExist()
+
         // Auto-load models if they exist on disk to avoid "Downloaded but not loaded" state
-        if modelsExistOnDisk {
+        if self.modelsExistOnDisk {
             DebugLogger.shared.info("Models found on disk, auto-loading...", source: "ASRService")
             Task { [weak self] in
                 guard let self = self else { return }
@@ -248,18 +247,15 @@ final class ASRService: ObservableObject
             }
         }
     }
-    
+
     /// Check if models exist on disk without loading them
     func checkIfModelsExist() {
-        modelsExistOnDisk = transcriptionProvider.modelsExistOnDisk()
-        DebugLogger.shared.debug("Models exist on disk: \(modelsExistOnDisk)", source: "ASRService")
+        self.modelsExistOnDisk = self.transcriptionProvider.modelsExistOnDisk()
+        DebugLogger.shared.debug("Models exist on disk: \(self.modelsExistOnDisk)", source: "ASRService")
     }
 
-
-    func requestMicAccess()
-    {
-        AVCaptureDevice.requestAccess(for: .audio)
-        { [weak self] granted in
+    func requestMicAccess() {
+        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             guard let self = self else { return }
             Task { @MainActor in
                 self.micPermissionGranted = granted
@@ -268,10 +264,8 @@ final class ASRService: ObservableObject
         }
     }
 
-    func openSystemSettingsForMic()
-    {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-        {
+    func openSystemSettingsForMic() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -296,30 +290,26 @@ final class ASRService: ObservableObject
     /// ## Errors
     /// If audio session configuration fails, the method will silently fail
     /// and `isRunning` will remain `false`. Check the debug logs for details.
-    func start()
-    {
-        guard micStatus == .authorized else { return }
-        guard isRunning == false else { return }
+    func start() {
+        guard self.micStatus == .authorized else { return }
+        guard self.isRunning == false else { return }
 
-        finalText.removeAll()
-        audioBuffer.clear(keepingCapacity: true) // specific optimization for restart
-        partialTranscription.removeAll()
-        previousFullTranscription.removeAll()
-        lastProcessedSampleCount = 0
-        isProcessingChunk = false
-        skipNextChunk = false
-        isRecordingWholeSession = true
+        self.finalText.removeAll()
+        self.audioBuffer.clear(keepingCapacity: true) // specific optimization for restart
+        self.partialTranscription.removeAll()
+        self.previousFullTranscription.removeAll()
+        self.lastProcessedSampleCount = 0
+        self.isProcessingChunk = false
+        self.skipNextChunk = false
+        self.isRecordingWholeSession = true
 
-        do
-        {
-            try configureSession()
-            try startEngine()
-            setupEngineTap()
-            isRunning = true
-            startStreamingTranscription()
-        }
-        catch
-        {
+        do {
+            try self.configureSession()
+            try self.startEngine()
+            self.setupEngineTap()
+            self.isRunning = true
+            self.startStreamingTranscription()
+        } catch {
             // TODO: Add proper error handling and user notification
             // For now, errors are logged but the UI doesn't show them
             DebugLogger.shared.error("Failed to start ASR session: \(error)", source: "ASRService")
@@ -353,37 +343,35 @@ final class ASRService: ObservableObject
     /// - ASR models are not available
     /// - Transcription process fails
     /// Check debug logs for detailed error information.
-    func stop() async -> String
-    {
-        guard isRunning else { return "" }
-        
+    func stop() async -> String {
+        guard self.isRunning else { return "" }
+
         DebugLogger.shared.debug("stop(): cancelling streaming and preparing final transcription", source: "ASRService")
-        
-        stopStreamingTimer()
-        removeEngineTap()
-        engine.stop()
-        engine.reset()  // Reset engine state to fully release Bluetooth mic
-        isRunning = false
-        
-        isProcessingChunk = false
-        skipNextChunk = false
-        previousFullTranscription.removeAll()
+
+        self.stopStreamingTimer()
+        self.removeEngineTap()
+        self.engine.stop()
+        self.engine.reset() // Reset engine state to fully release Bluetooth mic
+        self.isRunning = false
+
+        self.isProcessingChunk = false
+        self.skipNextChunk = false
+        self.previousFullTranscription.removeAll()
 
         // Thread-safe copy of recorded audio
-        let pcm = audioBuffer.getAll()
-        audioBuffer.clear()
-        isRecordingWholeSession = false
+        let pcm = self.audioBuffer.getAll()
+        self.audioBuffer.clear()
+        self.isRecordingWholeSession = false
 
-        do
-        {
+        do {
             try await self.ensureAsrReady()
-            guard transcriptionProvider.isReady else { 
+            guard self.transcriptionProvider.isReady else {
                 DebugLogger.shared.error("Transcription provider is not ready", source: "ASRService")
-                return "" 
+                return ""
             }
-            
-            DebugLogger.shared.debug("Starting transcription with \(pcm.count) samples (\(Float(pcm.count)/16000.0) seconds)", source: "ASRService")
-            DebugLogger.shared.debug("stop(): starting full transcription (samples: \(pcm.count)) using \(transcriptionProvider.name)", source: "ASRService")
+
+            DebugLogger.shared.debug("Starting transcription with \(pcm.count) samples (\(Float(pcm.count) / 16_000.0) seconds)", source: "ASRService")
+            DebugLogger.shared.debug("stop(): starting full transcription (samples: \(pcm.count)) using \(self.transcriptionProvider.name)", source: "ASRService")
             let result = try await transcriptionExecutor.run { [provider = self.transcriptionProvider] in
                 try await provider.transcribe(pcm)
             }
@@ -393,143 +381,115 @@ final class ASRService: ObservableObject
             let cleanedText = ASRService.removeFillerWords(result.text)
             DebugLogger.shared.debug("After filler removal: '\(cleanedText)'", source: "ASRService")
             return cleanedText
-        }
-        catch
-        {
+        } catch {
             DebugLogger.shared.error("ASR transcription failed: \(error)", source: "ASRService")
             DebugLogger.shared.error("Error details: \(error.localizedDescription)", source: "ASRService")
             let nsError = error as NSError
             DebugLogger.shared.error("Error domain: \(nsError.domain), code: \(nsError.code)", source: "ASRService")
             DebugLogger.shared.error("Error userInfo: \(nsError.userInfo)", source: "ASRService")
-            
+
             // Note: We intentionally do NOT show an error popup here.
             // Common errors like "audio too short" are expected during normal use
             // (e.g., accidental hotkey press) and would disrupt the user's workflow.
             // Errors are logged for debugging purposes.
-            
+
             return ""
         }
     }
 
+    func stopWithoutTranscription() {
+        guard self.isRunning else { return }
 
-
-
-
-    func stopWithoutTranscription()
-    {
-        guard isRunning else { return }
-        
-        stopStreamingTimer()
-        removeEngineTap()
-        engine.stop()
-        engine.reset()  // Reset engine state to fully release Bluetooth mic
-        isRunning = false
-        audioBuffer.clear()
-        isRecordingWholeSession = false
-        partialTranscription.removeAll()
-        previousFullTranscription.removeAll()
-        lastProcessedSampleCount = 0
-        isProcessingChunk = false
-        skipNextChunk = false
+        self.stopStreamingTimer()
+        self.removeEngineTap()
+        self.engine.stop()
+        self.engine.reset() // Reset engine state to fully release Bluetooth mic
+        self.isRunning = false
+        self.audioBuffer.clear()
+        self.isRecordingWholeSession = false
+        self.partialTranscription.removeAll()
+        self.previousFullTranscription.removeAll()
+        self.lastProcessedSampleCount = 0
+        self.isProcessingChunk = false
+        self.skipNextChunk = false
     }
 
-    private func configureSession() throws
-    {
-        if engine.isRunning
-        {
-            engine.stop()
+    private func configureSession() throws {
+        if self.engine.isRunning {
+            self.engine.stop()
         }
-        engine.reset()
-        _ = engine.inputNode
+        self.engine.reset()
+        _ = self.engine.inputNode
     }
 
-    private func startEngine() throws
-    {
-        engine.reset()
+    private func startEngine() throws {
+        self.engine.reset()
         var attempts = 0
-        while attempts < 3
-        {
-            do
-            {
-                try engine.start()
+        while attempts < 3 {
+            do {
+                try self.engine.start()
                 return
-            }
-            catch
-            {
+            } catch {
                 attempts += 1
                 Thread.sleep(forTimeInterval: 0.1)
-                engine.reset()
+                self.engine.reset()
             }
         }
         throw NSError(domain: "ASRService", code: -1)
     }
 
-    private func removeEngineTap()
-    {
-        engine.inputNode.removeTap(onBus: 0)
+    private func removeEngineTap() {
+        self.engine.inputNode.removeTap(onBus: 0)
     }
 
-    private func setupEngineTap()
-    {
-        let input = engine.inputNode
+    private func setupEngineTap() {
+        let input = self.engine.inputNode
         let inFormat = input.inputFormat(forBus: 0)
-        inputFormat = inFormat
-        input.installTap(onBus: 0, bufferSize: 4096, format: inFormat)
-        { [weak self] (buffer, _) in
+        self.inputFormat = inFormat
+        input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, _ in
             self?.processInputBuffer(buffer: buffer)
         }
     }
 
-    private func handleDefaultInputChanged()
-    {
+    private func handleDefaultInputChanged() {
         // Restart engine to bind to the new default input and resume level publishing
-        if isRunning
-        {
-            removeEngineTap()
-            engine.stop()
-            do
-            {
-                try configureSession()
-                try startEngine()
-                setupEngineTap()
-            }
-            catch
-            {
-            }
+        if self.isRunning {
+            self.removeEngineTap()
+            self.engine.stop()
+            do {
+                try self.configureSession()
+                try self.startEngine()
+                self.setupEngineTap()
+            } catch {}
         }
         // Nudge visualizer
         DispatchQueue.main.async { self.audioLevelSubject.send(0.0) }
     }
 
     private var defaultInputListenerInstalled = false
-    private func registerDefaultDeviceChangeListener()
-    {
-        guard defaultInputListenerInstalled == false else { return }
+    private func registerDefaultDeviceChangeListener() {
+        guard self.defaultInputListenerInstalled == false else { return }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main)
-        { [weak self] _, _ in
+        let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main) { [weak self] _, _ in
             self?.handleDefaultInputChanged()
         }
-        if status == noErr { defaultInputListenerInstalled = true }
+        if status == noErr { self.defaultInputListenerInstalled = true }
     }
 
-    private func processInputBuffer(buffer: AVAudioPCMBuffer)
-    {
-        guard isRecordingWholeSession else
-        {
+    private func processInputBuffer(buffer: AVAudioPCMBuffer) {
+        guard self.isRecordingWholeSession else {
             DispatchQueue.main.async { self.audioLevelSubject.send(0.0) }
             return
         }
 
         let mono16k = self.toMono16k(floatBuffer: buffer)
-        if mono16k.isEmpty == false
-        {
+        if mono16k.isEmpty == false {
             // Thread-safe append
-            audioBuffer.append(mono16k)
+            self.audioBuffer.append(mono16k)
 
             // Publish audio level for visualization
             let audioLevel = self.calculateAudioLevel(mono16k)
@@ -537,51 +497,49 @@ final class ASRService: ObservableObject
         }
     }
 
-    private func calculateAudioLevel(_ samples: [Float]) -> CGFloat
-    {
+    private func calculateAudioLevel(_ samples: [Float]) -> CGFloat {
         guard samples.isEmpty == false else { return 0.0 }
-        
+
         // Calculate RMS
         var sum: Float = 0.0
         vDSP_svesq(samples, 1, &sum, vDSP_Length(samples.count))
         let rms = sqrt(sum / Float(samples.count))
-        
+
         // Apply noise gate at RMS level
         if rms < 0.002 {
-            return applySmoothingAndThreshold(0.0)
+            return self.applySmoothingAndThreshold(0.0)
         }
-        
+
         // Convert to dB with better scaling
         let dbLevel = 20 * log10(max(rms, 1e-10))
         let normalizedLevel = max(0, min(1, (dbLevel + 55) / 55))
-        
-        return applySmoothingAndThreshold(CGFloat(normalizedLevel))
-    }
-    
-    private func applySmoothingAndThreshold(_ newLevel: CGFloat) -> CGFloat {
-        // Minimal smoothing for real-time response
-        audioLevelHistory.append(newLevel)
-        if audioLevelHistory.count > historySize {
-            audioLevelHistory.removeFirst()
-        }
-        
-        // Light smoothing - mostly use current value
-        let average = audioLevelHistory.reduce(0, +) / CGFloat(audioLevelHistory.count)
-        let smoothingFactor: CGFloat = 0.7 // Much more responsive
-        smoothedLevel = (smoothingFactor * newLevel) + ((1 - smoothingFactor) * average)
-        
-        // Simple threshold - just cut off below silence level
-        if smoothedLevel < silenceThreshold {
-            return 0.0
-        }
-        
-        return smoothedLevel
+
+        return self.applySmoothingAndThreshold(CGFloat(normalizedLevel))
     }
 
-    private func toMono16k(floatBuffer: AVAudioPCMBuffer) -> [Float]
-    {
+    private func applySmoothingAndThreshold(_ newLevel: CGFloat) -> CGFloat {
+        // Minimal smoothing for real-time response
+        self.audioLevelHistory.append(newLevel)
+        if self.audioLevelHistory.count > self.historySize {
+            self.audioLevelHistory.removeFirst()
+        }
+
+        // Light smoothing - mostly use current value
+        let average = self.audioLevelHistory.reduce(0, +) / CGFloat(self.audioLevelHistory.count)
+        let smoothingFactor: CGFloat = 0.7 // Much more responsive
+        self.smoothedLevel = (smoothingFactor * newLevel) + ((1 - smoothingFactor) * average)
+
+        // Simple threshold - just cut off below silence level
+        if self.smoothedLevel < self.silenceThreshold {
+            return 0.0
+        }
+
+        return self.smoothedLevel
+    }
+
+    private func toMono16k(floatBuffer: AVAudioPCMBuffer) -> [Float] {
         if let format = floatBuffer.format as AVAudioFormat?,
-           format.sampleRate == 16000.0,
+           format.sampleRate == 16_000.0,
            format.commonFormat == .pcmFormatFloat32,
            format.channelCount == 1,
            let channelData = floatBuffer.floatChannelData
@@ -594,18 +552,15 @@ final class ASRService: ObservableObject
         return self.resampleTo16k(mono, sourceSampleRate: floatBuffer.format.sampleRate)
     }
 
-    private func downmixToMono(_ buffer: AVAudioPCMBuffer) -> [Float]
-    {
+    private func downmixToMono(_ buffer: AVAudioPCMBuffer) -> [Float] {
         guard let channelData = buffer.floatChannelData else { return [] }
         let frameCount = Int(buffer.frameLength)
         let channels = Int(buffer.format.channelCount)
-        if channels == 1
-        {
+        if channels == 1 {
             return Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
         }
         var mono = [Float](repeating: 0, count: frameCount)
-        for c in 0..<channels
-        {
+        for c in 0..<channels {
             let src = channelData[c]
             vDSP_vadd(src, 1, mono, 1, &mono, 1, vDSP_Length(frameCount))
         }
@@ -614,27 +569,22 @@ final class ASRService: ObservableObject
         return mono
     }
 
-    private func resampleTo16k(_ samples: [Float], sourceSampleRate: Double) -> [Float]
-    {
+    private func resampleTo16k(_ samples: [Float], sourceSampleRate: Double) -> [Float] {
         guard samples.isEmpty == false else { return [] }
-        if sourceSampleRate == 16000.0 { return samples }
-        let ratio = 16000.0 / sourceSampleRate
+        if sourceSampleRate == 16_000.0 { return samples }
+        let ratio = 16_000.0 / sourceSampleRate
         let outCount = Int(Double(samples.count) * ratio)
         var output = [Float](repeating: 0, count: max(outCount, 0))
         if output.isEmpty { return [] }
-        for i in 0..<outCount
-        {
+        for i in 0..<outCount {
             let srcPos = Double(i) / ratio
             let idx = Int(srcPos)
             let frac = Float(srcPos - Double(idx))
-            if idx + 1 < samples.count
-            {
+            if idx + 1 < samples.count {
                 let a = samples[idx]
                 let b = samples[idx + 1]
                 output[i] = a + (b - a) * frac
-            }
-            else if idx < samples.count
-            {
+            } else if idx < samples.count {
                 output[i] = samples[idx]
             }
         }
@@ -657,57 +607,54 @@ final class ASRService: ObservableObject
     /// Throws if model download or loading fails. Common causes:
     /// - Network connectivity issues
     /// - Insufficient disk space
-    func ensureAsrReady() async throws
-    {
-        let provider = transcriptionProvider
+    func ensureAsrReady() async throws {
+        let provider = self.transcriptionProvider
         let providerKey = "\(type(of: provider)):\(provider.name)"
-        
+
         // Single-flight: if a prepare is already running for this provider, await it.
         if let task = ensureReadyTask, ensureReadyProviderKey == providerKey {
             try await task.value
             return
         }
-        
+
         let task = Task { @MainActor in
             try await self.performEnsureAsrReady(provider: provider)
         }
-        ensureReadyTask = task
-        ensureReadyProviderKey = providerKey
-        
+        self.ensureReadyTask = task
+        self.ensureReadyProviderKey = providerKey
+
         defer {
             if ensureReadyProviderKey == providerKey {
                 ensureReadyTask = nil
                 ensureReadyProviderKey = nil
             }
         }
-        
+
         try await task.value
     }
-    
-    private func performEnsureAsrReady(provider: TranscriptionProvider) async throws
-    {
+
+    private func performEnsureAsrReady(provider: TranscriptionProvider) async throws {
         // Check if already ready
-        if isAsrReady && provider.isReady {
+        if self.isAsrReady, provider.isReady {
             DebugLogger.shared.debug("ASR already ready with loaded models, skipping initialization", source: "ASRService")
             return
         }
-        
+
         // If the flag is set but provider isn't ready (e.g., provider switch without reset), re-init.
-        if isAsrReady && !provider.isReady {
+        if self.isAsrReady, !provider.isReady {
             DebugLogger.shared.debug("ASR marked ready but provider not ready; re-initializing", source: "ASRService")
         }
-        
-        isAsrReady = false
-        
+
+        self.isAsrReady = false
+
         let totalStartTime = Date()
-        do
-        {
+        do {
             DebugLogger.shared.info("=== ASR INITIALIZATION START ===", source: "ASRService")
             DebugLogger.shared.info("Using provider: \(provider.name)", source: "ASRService")
-            
+
             let modelsAlreadyCached = provider.modelsExistOnDisk()
             DebugLogger.shared.info("Models already cached on disk: \(modelsAlreadyCached)", source: "ASRService")
-            
+
             // Suppress stderr noise during model loading (ALWAYS restore, even on failure).
             let originalStderr = dup(STDERR_FILENO)
             var didRedirectStderr = false
@@ -729,7 +676,7 @@ final class ASRService: ObservableObject
                     close(originalStderr)
                 }
             }
-            
+
             // Set correct loading state based on whether models are cached
             DispatchQueue.main.async {
                 if modelsAlreadyCached {
@@ -742,28 +689,26 @@ final class ASRService: ObservableObject
                     DebugLogger.shared.info("⬇️ DOWNLOADING model...", source: "ASRService")
                 }
             }
-            
+
             // Use the transcription provider to prepare models
             let downloadStartTime = Date()
             DebugLogger.shared.info("Calling transcriptionProvider.prepare()...", source: "ASRService")
             try await provider.prepare(progressHandler: nil)
             let downloadDuration = Date().timeIntervalSince(downloadStartTime)
             DebugLogger.shared.info("✓ Provider preparation completed in \(String(format: "%.1f", downloadDuration)) seconds", source: "ASRService")
-            
+
             DispatchQueue.main.async {
                 self.isDownloadingModel = false
                 self.isLoadingModel = false
                 self.modelsExistOnDisk = true
             }
-            
+
             let totalDuration = Date().timeIntervalSince(totalStartTime)
             DebugLogger.shared.info("=== ASR INITIALIZATION COMPLETE ===", source: "ASRService")
             DebugLogger.shared.info("Total initialization time: \(String(format: "%.1f", totalDuration)) seconds", source: "ASRService")
-            
-            isAsrReady = true
-        }
-        catch
-        {
+
+            self.isAsrReady = true
+        } catch {
             DebugLogger.shared.error("ASR initialization failed with error: \(error)", source: "ASRService")
             DebugLogger.shared.error("Error details: \(error.localizedDescription)", source: "ASRService")
             DispatchQueue.main.async {
@@ -775,20 +720,16 @@ final class ASRService: ObservableObject
     }
 
     // MARK: - Model lifecycle helpers (parity with original API)
-    func predownloadSelectedModel()
-    {
-        Task
-        { [weak self] in
+
+    func predownloadSelectedModel() {
+        Task { [weak self] in
             guard let self = self else { return }
             DebugLogger.shared.info("Starting model predownload...", source: "ASRService")
             // ensureAsrReady handles setting the correct loading/downloading state
-            do
-            {
+            do {
                 try await self.ensureAsrReady()
                 DebugLogger.shared.info("Model predownload completed successfully", source: "ASRService")
-            }
-            catch
-            {
+            } catch {
                 DebugLogger.shared.error("Model predownload failed: \(error)", source: "ASRService")
                 self.errorTitle = "Download Failed"
                 self.errorMessage = error.localizedDescription
@@ -797,103 +738,98 @@ final class ASRService: ObservableObject
         }
     }
 
-    func preloadModelAfterSelection() async
-    {
+    func preloadModelAfterSelection() async {
         // ensureAsrReady handles setting the correct loading/downloading state
-        do
-        {
+        do {
             try await self.ensureAsrReady()
-        }
-        catch
-        {
+        } catch {
             DebugLogger.shared.error("Model preload failed: \(error)", source: "ASRService")
         }
     }
 
-
     // MARK: - Cache management
-    func clearModelCache() async throws
-    {
+
+    func clearModelCache() async throws {
         DebugLogger.shared.debug("Clearing model cache via transcription provider", source: "ASRService")
-        try await transcriptionProvider.clearCache()
-        isAsrReady = false
-        modelsExistOnDisk = false
+        try await self.transcriptionProvider.clearCache()
+        self.isAsrReady = false
+        self.modelsExistOnDisk = false
     }
 
     // MARK: - Timer-based Streaming Transcription (No VAD)
-    
+
     private func startStreamingTranscription() {
-        streamingTask?.cancel()
-        guard isAsrReady else { return }
+        self.streamingTask?.cancel()
+        guard self.isAsrReady else { return }
 
-        DebugLogger.shared.debug("Starting streaming transcription task (interval: \(chunkDurationSeconds)s)", source: "ASRService")
+        DebugLogger.shared.debug("Starting streaming transcription task (interval: \(self.chunkDurationSeconds)s)", source: "ASRService")
 
-        streamingTask = Task { [weak self] in
+        self.streamingTask = Task { [weak self] in
             await self?.runStreamingLoop()
         }
     }
 
     private func stopStreamingTimer() {
-        streamingTask?.cancel()
-        streamingTask = nil
+        self.streamingTask?.cancel()
+        self.streamingTask = nil
     }
 
     @MainActor
     private func runStreamingLoop() async {
         while !Task.isCancelled {
-            await processStreamingChunk()
+            await self.processStreamingChunk()
 
-            if Task.isCancelled || isRunning == false {
+            if Task.isCancelled || self.isRunning == false {
                 break
             }
 
             do {
-                try await Task.sleep(nanoseconds: UInt64(chunkDurationSeconds * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(self.chunkDurationSeconds * 1_000_000_000))
             } catch {
                 DebugLogger.shared.debug("Streaming transcription task cancelled", source: "ASRService")
                 break
             }
         }
     }
-    
+
     @MainActor
     private func processStreamingChunk() async {
-        guard isRunning else { return }
-        
+        guard self.isRunning else { return }
+
         // Skip if already processing to prevent queue buildup
-        guard !isProcessingChunk else {
+        guard !self.isProcessingChunk else {
             DebugLogger.shared.debug("⚠️ Skipping chunk - previous transcription still in progress", source: "ASRService")
-            skipNextChunk = true
+            self.skipNextChunk = true
             return
         }
-        
-        if skipNextChunk {
+
+        if self.skipNextChunk {
             DebugLogger.shared.debug("⚠️ Skipping chunk for ANE recovery", source: "ASRService")
-            skipNextChunk = false
+            self.skipNextChunk = false
             return
         }
-        
-        guard isAsrReady, transcriptionProvider.isReady else { return }
-        
+
+        guard self.isAsrReady, self.transcriptionProvider.isReady else { return }
+
         // Thread-safe count check
-        let currentSampleCount = audioBuffer.count
-        let minSamples = 8000  // 0.5 second minimum for faster initial feedback
+        let currentSampleCount = self.audioBuffer.count
+        let minSamples = 8000 // 0.5 second minimum for faster initial feedback
         guard currentSampleCount >= minSamples else { return }
-        
+
         // Thread-safe copy of the data
-        let chunk = audioBuffer.getPrefix(currentSampleCount)
-        
-        isProcessingChunk = true
+        let chunk = self.audioBuffer.getPrefix(currentSampleCount)
+
+        self.isProcessingChunk = true
         defer { isProcessingChunk = false }
-        
+
         let startTime = Date()
-        
+
         do {
-            DebugLogger.shared.debug("Streaming chunk starting transcription (samples: \(chunk.count)) using \(transcriptionProvider.name)", source: "ASRService")
+            DebugLogger.shared.debug("Streaming chunk starting transcription (samples: \(chunk.count)) using \(self.transcriptionProvider.name)", source: "ASRService")
             let result = try await transcriptionExecutor.run { [provider = self.transcriptionProvider] in
                 try await provider.transcribe(chunk)
             }
-            
+
             let duration = Date().timeIntervalSince(startTime)
             DebugLogger.shared.debug(
                 "Streaming chunk transcription finished in \(String(format: "%.2f", duration))s",
@@ -901,63 +837,64 @@ final class ASRService: ObservableObject
             )
             let rawText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let newText = ASRService.removeFillerWords(rawText)
-            
+
             if !newText.isEmpty {
                 // Smart diff: only show truly new words
-                let updatedText = smartDiffUpdate(previous: previousFullTranscription, current: newText)
-                partialTranscription = updatedText
-                previousFullTranscription = newText
-                
+                let updatedText = self.smartDiffUpdate(previous: self.previousFullTranscription, current: newText)
+                self.partialTranscription = updatedText
+                self.previousFullTranscription = newText
+
                 DebugLogger.shared.debug("✅ Streaming: '\(updatedText)' (\(String(format: "%.2f", duration))s)", source: "ASRService")
             }
-            
+
             // If transcription takes longer than the interval, skip next to prevent queue buildup
             // This allows slower machines to still work without overwhelming the system
-            if duration > chunkDurationSeconds {
-                DebugLogger.shared.debug("⚠️ Transcription slow (\(String(format: "%.2f", duration))s > \(chunkDurationSeconds)s), skipping next chunk", source: "ASRService")
-                skipNextChunk = true
+            if duration > self.chunkDurationSeconds {
+                DebugLogger.shared.debug("⚠️ Transcription slow (\(String(format: "%.2f", duration))s > \(self.chunkDurationSeconds)s), skipping next chunk", source: "ASRService")
+                self.skipNextChunk = true
             }
         } catch {
             DebugLogger.shared.error("❌ Streaming failed: \(error)", source: "ASRService")
-            skipNextChunk = true
+            self.skipNextChunk = true
         }
     }
-    
+
     /// Smart diff to prevent text from jumping around
     private func smartDiffUpdate(previous: String, current: String) -> String {
         guard !previous.isEmpty else { return current }
         guard !current.isEmpty else { return previous }
-        
+
         let prevWords = previous.split(separator: " ").map(String.init)
         let currWords = current.split(separator: " ").map(String.init)
-        
+
         // Find longest common prefix
         var commonPrefixLength = 0
         for i in 0..<min(prevWords.count, currWords.count) {
             if prevWords[i].lowercased().trimmingCharacters(in: .punctuationCharacters) ==
-               currWords[i].lowercased().trimmingCharacters(in: .punctuationCharacters) {
+                currWords[i].lowercased().trimmingCharacters(in: .punctuationCharacters)
+            {
                 commonPrefixLength = i + 1
             } else {
                 break
             }
         }
-        
+
         // If >50% overlap, keep stable prefix and add new words
         if commonPrefixLength > prevWords.count / 2 {
             let stableWords = Array(currWords[0..<min(commonPrefixLength, currWords.count)])
             let newWords = currWords.count > commonPrefixLength ? Array(currWords[commonPrefixLength...]) : []
             return (stableWords + newWords).joined(separator: " ")
         } else {
-            return current  // Significant change
+            return current // Significant change
         }
     }
 
     // MARK: - Typing convenience for compatibility
+
     private let typingService = TypingService() // Reuse instance to avoid conflicts
 
-    func typeTextToActiveField(_ text: String)
-    {
-        typingService.typeTextInstantly(text)
+    func typeTextToActiveField(_ text: String) {
+        self.typingService.typeTextInstantly(text)
     }
 
     /// Removes filler sounds from transcribed text

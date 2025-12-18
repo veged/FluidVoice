@@ -1,5 +1,5 @@
-import Foundation
 import CoreML
+import Foundation
 #if arch(arm64)
 import FluidAudio
 #endif
@@ -7,16 +7,13 @@ import FluidAudio
 /// A robust downloader for Hugging Face models with progress tracking and error handling.
 /// Supports downloading entire model repositories with proper file structure preservation.
 /// Can be configured to use different model repositories for flexibility.
-final class HuggingFaceModelDownloader
-{
-    struct HFEntry: Decodable
-    {
+final class HuggingFaceModelDownloader {
+    struct HFEntry: Decodable {
         let type: String
         let path: String
     }
 
-    struct ModelItem
-    {
+    struct ModelItem {
         let path: String
         let isDirectory: Bool
     }
@@ -31,22 +28,21 @@ final class HuggingFaceModelDownloader
     private var baseResolveURL: URL
 
     /// Initialize with default model repository settings
-    init()
-    {
+    init() {
         self.owner = "FluidInference"
         self.repo = "parakeet-tdt-0.6b-v3-coreml"
         self.revision = "main"
         self.baseApiURL = URL(string: "https://huggingface.co/api/models/")!
-            .appendingPathComponent(owner)
-            .appendingPathComponent(repo)
+            .appendingPathComponent(self.owner)
+            .appendingPathComponent(self.repo)
             .appendingPathComponent("tree")
-            .appendingPathComponent(revision)
+            .appendingPathComponent(self.revision)
 
         self.baseResolveURL = URL(string: "https://huggingface.co/")!
-            .appendingPathComponent(owner)
-            .appendingPathComponent(repo)
+            .appendingPathComponent(self.owner)
+            .appendingPathComponent(self.repo)
             .appendingPathComponent("resolve")
-            .appendingPathComponent(revision)
+            .appendingPathComponent(self.revision)
     }
 
     /// Initialize with custom model repository settings
@@ -54,8 +50,7 @@ final class HuggingFaceModelDownloader
     ///   - owner: Hugging Face username or organization
     ///   - repo: Repository name containing the models
     ///   - revision: Branch or commit hash (default: "main")
-    init(owner: String, repo: String, revision: String = "main")
-    {
+    init(owner: String, repo: String, revision: String = "main") {
         self.owner = owner
         self.repo = repo
         self.revision = revision
@@ -72,39 +67,30 @@ final class HuggingFaceModelDownloader
             .appendingPathComponent(revision)
     }
 
-    func ensureModelsPresent(at targetRoot: URL, onProgress: ((Double, String) -> Void)? = nil) async throws
-    {
+    func ensureModelsPresent(at targetRoot: URL, onProgress: ((Double, String) -> Void)? = nil) async throws {
         try FileManager.default.createDirectory(at: targetRoot, withIntermediateDirectories: true)
 
         // Build list of files to download (flatten directories via HF API tree)
         var pendingFiles: [String] = []
-        for item in requiredItems()
-        {
-            if item.isDirectory
-            {
+        for item in self.requiredItems() {
+            if item.isDirectory {
                 let files = try await listFilesRecursively(relativePath: item.path)
-                for rel in files
-                {
+                for rel in files {
                     let dest = targetRoot.appendingPathComponent(rel)
-                    if FileManager.default.fileExists(atPath: dest.path) == false
-                    {
+                    if FileManager.default.fileExists(atPath: dest.path) == false {
                         pendingFiles.append(rel)
                     }
                 }
-            }
-            else
-            {
+            } else {
                 let dest = targetRoot.appendingPathComponent(item.path)
-                if FileManager.default.fileExists(atPath: dest.path) == false
-                {
+                if FileManager.default.fileExists(atPath: dest.path) == false {
                     pendingFiles.append(item.path)
                 }
             }
         }
 
         // If nothing to download, say so clearly
-        if pendingFiles.isEmpty
-        {
+        if pendingFiles.isEmpty {
             print("[ModelDL] All required model files are already present. Nothing to download.")
             onProgress?(1.0, "")
             return
@@ -113,8 +99,7 @@ final class HuggingFaceModelDownloader
         // Compute total bytes (best-effort) for determinate progress
         var sizeByPath: [String: Int64] = [:]
         var totalBytes: Int64 = 0
-        for rel in pendingFiles
-        {
+        for rel in pendingFiles {
             let expected = try await headExpectedLength(relativePath: rel)
             sizeByPath[rel] = expected
             if expected > 0 { totalBytes += expected }
@@ -127,15 +112,12 @@ final class HuggingFaceModelDownloader
         let fallbackTotal = pendingFiles.count
         var fallbackCompleted = 0
 
-        for (idx, rel) in pendingFiles.enumerated()
-        {
-            print("[ModelDL] (\(idx+1)/\(pendingFiles.count)) Downloading: \(rel)")
-            try await downloadFile(relativePath: rel, to: targetRoot.appendingPathComponent(rel)) { perFilePct in
-                if totalBytes > 0
-                {
+        for (idx, rel) in pendingFiles.enumerated() {
+            print("[ModelDL] (\(idx + 1)/\(pendingFiles.count)) Downloading: \(rel)")
+            try await self.downloadFile(relativePath: rel, to: targetRoot.appendingPathComponent(rel)) { perFilePct in
+                if totalBytes > 0 {
                     let expected = sizeByPath[rel] ?? 0
-                    if expected > 0
-                    {
+                    if expected > 0 {
                         let overallBase = Double(downloadedBytes) / Double(totalBytes)
                         let combined = min(1.0, overallBase + (perFilePct * Double(expected)) / Double(totalBytes))
                         onProgress?(combined, rel)
@@ -144,15 +126,12 @@ final class HuggingFaceModelDownloader
                     }
                 }
             }
-            if totalBytes > 0
-            {
+            if totalBytes > 0 {
                 downloadedBytes += (sizeByPath[rel] ?? 0)
                 let pct = min(1.0, Double(downloadedBytes) / Double(totalBytes))
                 onProgress?(pct, rel)
                 print(String(format: "[ModelDL] Overall progress: %.1f%% (\(Self.formatBytes(downloadedBytes))/\(Self.formatBytes(totalBytes)))", pct * 100.0))
-            }
-            else if fallbackTotal > 0
-            {
+            } else if fallbackTotal > 0 {
                 fallbackCompleted += 1
                 onProgress?(Double(fallbackCompleted) / Double(fallbackTotal), rel)
                 print("[ModelDL] Overall progress: \(fallbackCompleted)/\(fallbackTotal)")
@@ -160,34 +139,30 @@ final class HuggingFaceModelDownloader
         }
     }
 
-    private func requiredItems() -> [ModelItem]
-    {
+    private func requiredItems() -> [ModelItem] {
         return [
             // Preferred v3 unified model file names used by FluidAudio 0.5+
             ModelItem(path: "MelEncoder.mlmodelc", isDirectory: true),
             ModelItem(path: "Decoder.mlmodelc", isDirectory: true),
             ModelItem(path: "JointDecision.mlmodelc", isDirectory: true),
-            ModelItem(path: "parakeet_v3_vocab.json", isDirectory: false)
+            ModelItem(path: "parakeet_v3_vocab.json", isDirectory: false),
         ]
     }
 
-    private func downloadDirectory(relativePath: String, to destination: URL) async throws
-    {
+    private func downloadDirectory(relativePath: String, to destination: URL) async throws {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
         // Download entire directory by enumerating all files
         let files = try await listFilesRecursively(relativePath: relativePath)
-        for rel in files
-        {
+        for rel in files {
             let dest = destination.deletingLastPathComponent().appendingPathComponent(rel)
             try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try await downloadFile(relativePath: rel, to: dest)
+            try await self.downloadFile(relativePath: rel, to: dest)
         }
     }
 
-    private func downloadFile(relativePath: String, to destination: URL, perFileProgress: ((Double) -> Void)? = nil) async throws
-    {
-        let fileURL = baseResolveURL.appendingPathComponent(relativePath)
+    private func downloadFile(relativePath: String, to destination: URL, perFileProgress: ((Double) -> Void)? = nil) async throws {
+        let fileURL = self.baseResolveURL.appendingPathComponent(relativePath)
 
         let delegate = DownloadProgressDelegate(onProgress: perFileProgress)
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
@@ -195,23 +170,18 @@ final class HuggingFaceModelDownloader
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             delegate.onFinish = { tempUrl, response in
-                do
-                {
-                    if let http = response as? HTTPURLResponse, http.statusCode >= 400
-                    {
+                do {
+                    if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
                         continuation.resume(throwing: NSError(domain: "HF", code: http.statusCode))
                         return
                     }
                     try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    if FileManager.default.fileExists(atPath: destination.path)
-                    {
+                    if FileManager.default.fileExists(atPath: destination.path) {
                         try FileManager.default.removeItem(at: destination)
                     }
                     try FileManager.default.moveItem(at: tempUrl, to: destination)
                     continuation.resume()
-                }
-                catch
-                {
+                } catch {
                     continuation.resume(throwing: error)
                 }
             }
@@ -222,39 +192,33 @@ final class HuggingFaceModelDownloader
         }
     }
 
-    private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate
-    {
+    private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
         private let onProgress: ((Double) -> Void)?
         var onFinish: ((URL, URLResponse) -> Void)?
         var onError: ((Error) -> Void)?
 
-        init(onProgress: ((Double) -> Void)?)
-        {
+        init(onProgress: ((Double) -> Void)?) {
             self.onProgress = onProgress
         }
 
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL)
-        {
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
             guard let response = downloadTask.response else { return }
-            onFinish?(location, response)
+            self.onFinish?(location, response)
         }
 
-        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?)
-        {
-            if let error = error { onError?(error) }
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let error = error { self.onError?(error) }
         }
 
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64)
-        {
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
             guard totalBytesExpectedToWrite > 0 else { return }
             let pct = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-            onProgress?(pct)
+            self.onProgress?(pct)
         }
     }
 
-    private func headExpectedLength(relativePath: String) async throws -> Int64
-    {
-        let fileURL = baseResolveURL.appendingPathComponent(relativePath)
+    private func headExpectedLength(relativePath: String) async throws -> Int64 {
+        let fileURL = self.baseResolveURL.appendingPathComponent(relativePath)
         var req = URLRequest(url: fileURL)
         req.httpMethod = "HEAD"
         let (_, resp) = try await URLSession.shared.data(for: req)
@@ -264,16 +228,14 @@ final class HuggingFaceModelDownloader
         return http.expectedContentLength
     }
 
-    private func listFilesRecursively(relativePath: String) async throws -> [String]
-    {
-        let listingURL = baseApiURL
+    private func listFilesRecursively(relativePath: String) async throws -> [String] {
+        let listingURL = self.baseApiURL
             .appendingPathComponent(relativePath)
         var comps = URLComponents(url: listingURL, resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "recursive", value: "1")]
 
         let (data, resp) = try await URLSession.shared.data(from: comps.url!)
-        if let http = resp as? HTTPURLResponse, http.statusCode >= 400
-        {
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
             throw NSError(domain: "HF", code: http.statusCode)
         }
 
@@ -285,8 +247,7 @@ final class HuggingFaceModelDownloader
             .map { $0.path }
     }
 
-    private static func formatBytes(_ bytes: Int64) -> String
-    {
+    private static func formatBytes(_ bytes: Int64) -> String {
         let kb: Double = 1024
         let mb = kb * 1024
         let gb = mb * 1024
@@ -299,11 +260,9 @@ final class HuggingFaceModelDownloader
 }
 
 #if arch(arm64)
-extension HuggingFaceModelDownloader
-{
+extension HuggingFaceModelDownloader {
     /// Load ASR models directly from disk using unified v3 model names
-    func loadLocalAsrModels(from repoDirectory: URL) async throws -> AsrModels
-    {
+    func loadLocalAsrModels(from repoDirectory: URL) async throws -> AsrModels {
         let config = AsrModels.defaultConfiguration()
         let fm = FileManager.default
 
@@ -321,10 +280,10 @@ extension HuggingFaceModelDownloader
 
         // Check if new structure exists
         let hasNewStructure = fm.fileExists(atPath: preprocessorUrl.path) && fm.fileExists(atPath: encoderUrl.path)
-        
+
         let encoder: MLModel
         let preprocessor: MLModel?
-        
+
         if hasNewStructure {
             // Load with new structure (separate Preprocessor and Encoder)
             print("[ModelDL] Loading with new model structure (Preprocessor + Encoder)")
@@ -336,14 +295,14 @@ extension HuggingFaceModelDownloader
             print("[ModelDL] New structure not found, trying legacy MelEncoder")
             print("[ModelDL] MelEncoder path: \(melEncUrl.path)")
             print("[ModelDL] MelEncoder exists: \(fm.fileExists(atPath: melEncUrl.path))")
-            
+
             if fm.fileExists(atPath: melEncUrl.path) {
                 encoder = try MLModel(contentsOf: melEncUrl, configuration: config)
                 preprocessor = nil
                 print("[ModelDL] Using MelEncoder (legacy mode)")
             } else {
                 throw NSError(domain: "ModelDL", code: -1, userInfo: [
-                    NSLocalizedDescriptionKey: "Neither new model structure (Preprocessor + Encoder) nor legacy structure (MelEncoder) found"
+                    NSLocalizedDescriptionKey: "Neither new model structure (Preprocessor + Encoder) nor legacy structure (MelEncoder) found",
                 ])
             }
         }
@@ -370,7 +329,7 @@ extension HuggingFaceModelDownloader
         // For v2 models without separate preprocessor, use encoder as preprocessor
         // For v3 models, use the separate preprocessor
         let finalPreprocessor = preprocessor ?? encoder
-        
+
         return AsrModels(
             encoder: encoder,
             preprocessor: finalPreprocessor,
