@@ -62,8 +62,9 @@ enum ThinkingParserFactory {
         }
 
         // OpenAI reasoning models (o1, o3, gpt-5): use SeparateFieldThinkingParser
-        if SettingsStore.shared.isReasoningModel(model) && 
-           (modelLower.contains("gpt-5") || modelLower.contains("o1") || modelLower.contains("o3") || modelLower.contains("gpt-oss")) {
+        if SettingsStore.shared.isReasoningModel(model) &&
+            (modelLower.contains("gpt-5") || modelLower.contains("o1") || modelLower.contains("o3") || modelLower.contains("gpt-oss"))
+        {
             DebugLogger.shared.debug("ThinkingParser: Using SeparateFieldParser for reasoning model '\(model)'", source: "LLMClient")
             return SeparateFieldThinkingParser()
         }
@@ -303,7 +304,7 @@ struct SeparateFieldThinkingParser: ThinkingParser {
         currentState: ThinkingParserState,
         tagBuffer: inout String
     ) -> (ThinkingParserState, String, String) {
-        // For separate-field models, receiving any "content" chunk means 
+        // For separate-field models, receiving any "content" chunk means
         // we are definitively in the content phase.
         return (.inContent, "", chunk)
     }
@@ -313,4 +314,3 @@ struct SeparateFieldThinkingParser: ThinkingParser {
         return (thinkingBuffer.joined(), contentBuffer.joined().trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
-

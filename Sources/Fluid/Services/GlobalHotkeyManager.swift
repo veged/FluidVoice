@@ -589,7 +589,7 @@ final class GlobalHotkeyManager: NSObject {
                 await MainActor.run {
                     if !self.validateEventTapHealth() {
                         DebugLogger.shared.warning("Health check failed, attempting to recover", source: "GlobalHotkeyManager")
-                        
+
                         if self.setupGlobalHotkey() {
                             self.isInitialized = true
                             DebugLogger.shared.info("Health check recovery successful", source: "GlobalHotkeyManager")
@@ -607,7 +607,7 @@ final class GlobalHotkeyManager: NSObject {
         initializationTask?.cancel()
         healthCheckTask?.cancel()
         cleanupEventTap()
-        
+
         DebugLogger.shared.info("Deinitialized and cleaned up", source: "GlobalHotkeyManager")
     }
 }

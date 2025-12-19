@@ -74,16 +74,16 @@ class DebugLogger: ObservableObject {
 
     func log(_ message: String, level: LogLevel = .info, source: String = "App") {
         let loggingEnabled = self.loggingEnabled
-        
+
         // If logging is disabled, we drop all logs except errors which are always printed to console
-        if !loggingEnabled && level != .error {
+        if !loggingEnabled, level != .error {
             return
         }
 
         self.queue.async {
             let timestamp = Date()
             let timestampString = Self.logFormatter.string(from: timestamp)
-            
+
             let formattedLine = self.formatLogLine(timestamp: timestampString, level: level, source: source, message: message)
 
             // Always write to FileLogger and Console if we reach this point (either logging is enabled OR it's an error)
@@ -92,7 +92,7 @@ class DebugLogger: ObservableObject {
 
             // Only update the UI logs if logging is enabled (don't show errors in UI if debug is off)
             guard loggingEnabled else { return }
-            
+
             let entry = LogEntry(
                 timestamp: timestamp,
                 level: level,

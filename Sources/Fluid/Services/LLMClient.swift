@@ -325,16 +325,17 @@ final class LLMClient {
 
             // DEBUG LOG: Show full delta to see all fields (e.g., 'reasoning', 'thought', 'delta_reasoning', etc.)
             if let deltaData = try? JSONSerialization.data(withJSONObject: delta, options: [.fragmentsAllowed]),
-               let deltaString = String(data: deltaData, encoding: .utf8) {
+               let deltaString = String(data: deltaData, encoding: .utf8)
+            {
                 DebugLogger.shared.debug("LLMClient: Full Delta: \(deltaString)", source: "LLMClient")
             }
-            
+
             // Handle separate reasoning fields (OpenAI 'reasoning', 'reasoning_content', DeepSeek, etc.)
-            let reasoningField = delta["reasoning_content"] as? String ?? 
-                               delta["reasoning"] as? String ?? 
-                               delta["thought"] as? String ??
-                               delta["thinking"] as? String
-            
+            let reasoningField = delta["reasoning_content"] as? String ??
+                delta["reasoning"] as? String ??
+                delta["thought"] as? String ??
+                delta["thinking"] as? String
+
             if let reasoning = reasoningField {
                 if state == .initial {
                     state = .inThinking
@@ -346,15 +347,15 @@ final class LLMClient {
 
             // Handle content with potential <think> tags
             if let content = delta["content"] as? String {
-                // If we were in thinking mode via a separate field (not tag-based), 
+                // If we were in thinking mode via a separate field (not tag-based),
                 // receiving "content" usually means the thinking phase is over.
                 if state == .inThinking && reasoningField == nil && tagDetectionBuffer.isEmpty {
                     // This is a subtle heuristic: if we were thinking, didn't just get a reasoning field chunk,
-                    // and have no partial tags buffered, we should check if this content chunk 
+                    // and have no partial tags buffered, we should check if this content chunk
                     // is the start of the final answer.
                     // For safety with tag-based parsers, we let the parser decide unless it's a known separate-field model.
                 }
-                
+
                 // Debug: Log first few chunks and any chunk containing think tags
                 let containsThinkTag = content.contains("<think") || content.contains("</think") || content.contains("<thinking") || content.contains("</thinking")
                 if thinkingBuffer.count + contentBuffer.count < 8 || containsThinkTag {
@@ -483,11 +484,11 @@ final class LLMClient {
         let (thinking, cleanedContent) = self.stripThinkingTags(rawContent)
 
         // Also check for multiple reasoning field variants
-        let reasoningContent = message["reasoning_content"] as? String ?? 
-                              message["reasoning"] as? String ?? 
-                              message["thought"] as? String ??
-                              message["thinking"] as? String
-        
+        let reasoningContent = message["reasoning_content"] as? String ??
+            message["reasoning"] as? String ??
+            message["thought"] as? String ??
+            message["thinking"] as? String
+
         let finalThinking = [thinking, reasoningContent].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
 
         return Response(
@@ -612,20 +613,19 @@ final class LLMClient {
 
     private func logRequest(_ request: URLRequest) {
         guard let url = request.url, let method = request.httpMethod else { return }
-        
+
         var bodyString = ""
         if let body = request.httpBody {
             bodyString = String(data: body, encoding: .utf8) ?? ""
         }
-        
+
         var curl = "curl -X \(method) \"\(url.absoluteString)\" \\\n"
         for (key, value) in request.allHTTPHeaderFields ?? [:] {
             let maskedValue = key.lowercased().contains("auth") ? "Bearer [REDACTED]" : value
             curl += "  -H \"\(key): \(maskedValue)\" \\\n"
         }
         curl += "  -d '\(bodyString)'"
-        
+
         DebugLogger.shared.info("LLMClient: Full Request as cURL:\n\(curl)", source: "LLMClient")
     }
 }
-

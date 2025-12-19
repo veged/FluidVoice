@@ -312,7 +312,7 @@ final class SimpleUpdater {
         // we need to replace the old app and use the new name
         let installedAppName = installedAppURL.lastPathComponent
         let downloadedAppName = downloadedAppURL.lastPathComponent
-        
+
         DebugLogger.shared.info("SimpleUpdater: Installing app - Current: \(installedAppName), New: \(downloadedAppName)", source: "SimpleUpdater")
 
         let finalAppURL: URL
