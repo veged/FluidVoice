@@ -82,10 +82,10 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
         self.converter = BufferConverter()
 
         self.isReady = true
-        
+
         // Update cache to reflect that model is now installed (thread-safe)
         self._cacheQueue.sync { self._modelsInstalledCache = true }
-        
+
         DebugLogger.shared.info("AppleSpeechAnalyzerProvider ready", source: "AppleSpeechAnalyzerProvider")
     }
 
@@ -95,18 +95,18 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
         for locale in reserved {
             await AssetInventory.release(reservedLocale: locale)
         }
-        
+
         // Reset cache to reflect models are no longer installed (thread-safe)
         self._cacheQueue.sync { self._modelsInstalledCache = false }
-        
+
         self.isReady = false
     }
 
     /// Returns the cached result of whether models are installed (thread-safe).
-    /// 
+    ///
     /// **Important**: This method returns a cached value that defaults to `false`.
     /// For an accurate result, call `refreshModelsExistOnDiskAsync()` first.
-    /// 
+    ///
     /// The synchronous nature of this protocol method makes it impossible to
     /// perform the actual async `SpeechTranscriber.installedLocales` check inline.
     /// Callers should use `refreshModelsExistOnDiskAsync()` during initialization
@@ -124,14 +124,14 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
         let installedLocales = await SpeechTranscriber.installedLocales
         let currentLocaleID = Locale.current.identifier(.bcp47)
         let isInstalled = installedLocales.map { $0.identifier(.bcp47) }.contains(currentLocaleID)
-        
+
         self._cacheQueue.sync { self._modelsInstalledCache = isInstalled }
-        
+
         DebugLogger.shared.debug(
             "AppleSpeechAnalyzer: Model installed check - locale: \(currentLocaleID), installed: \(isInstalled)",
             source: "AppleSpeechAnalyzerProvider"
         )
-        
+
         return isInstalled
     }
 

@@ -289,10 +289,10 @@ final class ASRService: ObservableObject {
         // This is done in a Task to support async model detection (e.g., AppleSpeechAnalyzerProvider)
         Task { [weak self] in
             guard let self = self else { return }
-            
+
             // Use async check to accurately detect models (especially for Apple Speech Analyzer)
             await self.checkIfModelsExistAsync()
-            
+
             // Auto-load models if they exist on disk to avoid "Downloaded but not loaded" state
             if self.modelsExistOnDisk {
                 DebugLogger.shared.info("Models found on disk, auto-loading...", source: "ASRService")
@@ -307,7 +307,7 @@ final class ASRService: ObservableObject {
     }
 
     /// Check if models exist on disk without loading them (synchronous).
-    /// 
+    ///
     /// **Note**: For `AppleSpeechAnalyzerProvider`, this returns a cached value that may be stale.
     /// Use `checkIfModelsExistAsync()` for an up-to-date result.
     func checkIfModelsExist() {
@@ -316,12 +316,12 @@ final class ASRService: ObservableObject {
     }
 
     /// Check if models exist on disk without loading them (async).
-    /// 
+    ///
     /// This method performs an accurate async check for providers that require it
     /// (e.g., `AppleSpeechAnalyzerProvider` uses `SpeechTranscriber.installedLocales`).
     func checkIfModelsExistAsync() async {
         let model = SettingsStore.shared.selectedSpeechModel
-        
+
         // For Apple Speech Analyzer, use the async refresh method
         if model == .appleSpeechAnalyzer {
             if #available(macOS 26.0, *) {
@@ -332,7 +332,7 @@ final class ASRService: ObservableObject {
                 return
             }
         }
-        
+
         // For other providers, use the synchronous method
         self.modelsExistOnDisk = self.transcriptionProvider.modelsExistOnDisk()
         DebugLogger.shared.debug("Models exist on disk: \(self.modelsExistOnDisk)", source: "ASRService")
