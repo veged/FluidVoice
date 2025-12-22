@@ -105,6 +105,9 @@ final class ASRService: ObservableObject {
     /// Cached providers to avoid re-instantiation
     private var fluidAudioProvider: FluidAudioProvider?
     private var whisperProvider: WhisperProvider?
+    private var appleSpeechProvider: AppleSpeechProvider?
+    /// Stored as Any? because @available cannot be applied to stored properties
+    private var _appleSpeechAnalyzerProvider: Any?
 
     /// Prevent concurrent provider.prepare() calls (download/load) from overlapping.
     /// Subsequent callers await the in-flight task.
@@ -116,10 +119,20 @@ final class ASRService: ObservableObject {
     private var transcriptionProvider: TranscriptionProvider {
         let model = SettingsStore.shared.selectedSpeechModel
 
-        if model.isWhisperModel {
-            return self.getWhisperProvider()
-        } else {
+        switch model {
+        case .appleSpeechAnalyzer:
+            if #available(macOS 26.0, *) {
+                return self.getAppleSpeechAnalyzerProvider()
+            } else {
+                // Fallback to legacy Apple Speech on older macOS
+                return self.getAppleSpeechProvider()
+            }
+        case .appleSpeech:
+            return self.getAppleSpeechProvider()
+        case .parakeetTDT:
             return self.getFluidAudioProvider()
+        default:
+            return self.getWhisperProvider()
         }
     }
 
@@ -143,6 +156,28 @@ final class ASRService: ObservableObject {
         return provider
     }
 
+    private func getAppleSpeechProvider() -> AppleSpeechProvider {
+        if let existing = appleSpeechProvider {
+            return existing
+        }
+        let provider = AppleSpeechProvider()
+        self.appleSpeechProvider = provider
+        DebugLogger.shared.info("ASRService: Created AppleSpeech provider", source: "ASRService")
+        return provider
+    }
+
+    @available(macOS 26.0, *)
+    private func getAppleSpeechAnalyzerProvider() -> AppleSpeechAnalyzerProvider {
+        if let existing = _appleSpeechAnalyzerProvider as? AppleSpeechAnalyzerProvider {
+            return existing
+        }
+        let provider = AppleSpeechAnalyzerProvider()
+        self._appleSpeechAnalyzerProvider = provider
+        DebugLogger.shared.info("ASRService: Created AppleSpeechAnalyzer provider", source: "ASRService")
+        return provider
+    }
+
+
     /// Returns the user-friendly name of the currently selected speech model
     var activeProviderName: String {
         SettingsStore.shared.selectedSpeechModel.displayName
@@ -150,16 +185,20 @@ final class ASRService: ObservableObject {
 
     /// Call this when the transcription provider setting changes to reset state
     func resetTranscriptionProvider() {
+        let newModel = SettingsStore.shared.selectedSpeechModel
+        DebugLogger.shared.info("ASRService: Switching to '\(newModel.displayName)', resetting provider state...", source: "ASRService")
+        
         self.isAsrReady = false
         self.modelsExistOnDisk = false
         self.ensureReadyTask?.cancel()
         self.ensureReadyTask = nil
         self.ensureReadyProviderKey = nil
-        DebugLogger.shared.info("ASRService: Provider reset, will re-initialize on next use", source: "ASRService")
 
         // CRITICAL FIX: Immediately check if the NEW model's files exist on disk
         // This prevents UI from showing "Download" when model is already downloaded
         self.checkIfModelsExist()
+        
+        DebugLogger.shared.info("ASRService: Provider reset complete, will initialize '\(newModel.displayName)' on next use", source: "ASRService")
     }
 
     // CRITICAL FIX (launch-time crash mitigation):

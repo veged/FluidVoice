@@ -872,7 +872,12 @@ final class SettingsStore: ObservableObject {
         // MARK: - FluidAudio Models (Apple Silicon Only)
 
         case parakeetTDT = "parakeet-tdt"
+        
+        // MARK: - Apple Native
 
+        case appleSpeech = "apple-speech"
+        case appleSpeechAnalyzer = "apple-speech-analyzer"
+        
         // MARK: - Whisper Models (Universal)
 
         case whisperTiny = "whisper-tiny"
@@ -889,6 +894,8 @@ final class SettingsStore: ObservableObject {
         var displayName: String {
             switch self {
             case .parakeetTDT: return "Parakeet TDT"
+            case .appleSpeech: return "Apple Speech (Legacy)"
+            case .appleSpeechAnalyzer: return "Apple Speech (macOS 26+)"
             case .whisperTiny: return "Whisper Tiny"
             case .whisperBase: return "Whisper Base"
             case .whisperSmall: return "Whisper Small"
@@ -901,6 +908,8 @@ final class SettingsStore: ObservableObject {
         var languageSupport: String {
             switch self {
             case .parakeetTDT: return "25 Languages"
+            case .appleSpeech: return "System Languages"
+            case .appleSpeechAnalyzer: return "EN, ES, FR, DE, IT, JA, KO, PT, ZH"
             case .whisperTiny, .whisperBase, .whisperSmall, .whisperMedium, .whisperLargeTurbo, .whisperLarge:
                 return "99 Languages"
             }
@@ -909,6 +918,8 @@ final class SettingsStore: ObservableObject {
         var downloadSize: String {
             switch self {
             case .parakeetTDT: return "~500 MB"
+            case .appleSpeech: return "Built-in (Zero Download)"
+            case .appleSpeechAnalyzer: return "Built-in"
             case .whisperTiny: return "~75 MB"
             case .whisperBase: return "~142 MB"
             case .whisperSmall: return "~466 MB"
@@ -927,7 +938,7 @@ final class SettingsStore: ObservableObject {
 
         var isWhisperModel: Bool {
             switch self {
-            case .parakeetTDT: return false
+            case .parakeetTDT, .appleSpeech, .appleSpeechAnalyzer: return false
             default: return true
             }
         }
@@ -960,10 +971,30 @@ final class SettingsStore: ObservableObject {
 
         // MARK: - Architecture Filtering
 
-        /// Returns models available for the current Mac's architecture
+        /// Requires macOS 26 (Tahoe) or later
+        var requiresMacOS26: Bool {
+            switch self {
+            case .appleSpeechAnalyzer: return true
+            default: return false
+            }
+        }
+
+        /// Returns models available for the current Mac's architecture and OS
         static var availableModels: [SpeechModel] {
             allCases.filter { model in
-                !model.requiresAppleSilicon || CPUArchitecture.isAppleSilicon
+                // Filter by Apple Silicon requirement
+                if model.requiresAppleSilicon && !CPUArchitecture.isAppleSilicon {
+                    return false
+                }
+                // Filter by macOS 26 requirement
+                if model.requiresMacOS26 {
+                    if #available(macOS 26.0, *) {
+                        return true
+                    } else {
+                        return false
+                    }
+                }
+                return true
             }
         }
 
