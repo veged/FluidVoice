@@ -26,17 +26,17 @@ struct AnalyticsPrivacyView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     self.sectionTitle("We collect")
-                    self.bullet("App version/build, macOS version, and CPU architecture (arm64 vs Intel).")
-                    self.bullet("Feature usage (e.g., dictation/command/write mode usage).")
-                    self.bullet("Performance buckets (e.g., latency ranges, duration ranges).")
-                    self.bullet("Success/failure flags (e.g., whether transcription produced text).")
-                    self.bullet("A random install identifier (not tied to your identity).")
+                    self.bullet("Basic app/device info (app version, macOS version, and whether you’re on Apple Silicon or Intel).")
+                    self.bullet("A few on/off settings (for example: AI processing, live preview, press-and-hold, copy-to-clipboard).")
+                    self.bullet("Which features were used (for example: dictation, Command Mode, Write/Rewrite, meeting transcription).")
+                    self.bullet("Approximate ranges only (not exact values), like how long something took or how many words were dictated.")
+                    self.bullet("Whether something worked and high-level error categories (no detailed logs).")
 
                     self.sectionTitle("We do NOT collect")
                     self.bullet("Any transcription text or audio.")
                     self.bullet("Selected text, rewrite prompts, or AI responses.")
                     self.bullet("Terminal commands or outputs from Command Mode.")
-                    self.bullet("Window titles, file names, clipboard contents, or anything you type.")
+                    self.bullet("Window titles, app names, file names/paths, clipboard contents, or anything you type.")
 
                     self.sectionTitle("How it’s used")
                     self.bullet("To understand which features are being used and where reliability/performance can be improved.")
