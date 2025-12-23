@@ -68,27 +68,41 @@ final class TypingService {
         // Check if we have permission to create events
         self.log("[TypingService] Accessibility trusted: \(AXIsProcessTrusted())")
 
-        // Try direct bulk CGEvent insertion (NO CLIPBOARD)
-        self.log("[TypingService] Trying INSTANT bulk CGEvent insertion (no clipboard)")
+        // Primary: Try direct CGEvent insertion (fastest, no clipboard)
+        self.log("[TypingService] Trying CGEvent insertion")
         if self.insertTextBulkInstant(text) {
-            self.log("[TypingService] SUCCESS: Instant bulk CGEvent completed")
-        } else {
-            self.log("[TypingService] FAILED: Bulk CGEvent, trying character-by-character")
-            // Fallback to character-by-character if bulk fails
-            for (index, char) in text.enumerated() {
-                if index % 10 == 0 { // Log every 10th character to avoid spam
-                    self.log("[TypingService] Typing character \(index + 1)/\(text.count): '\(char)'")
-                }
-                self.typeCharacter(char)
-                usleep(1000) // Small delay between characters (1ms)
-            }
-
-            self.log("[TypingService] Character-by-character typing completed")
+            self.log("[TypingService] SUCCESS: CGEvent insertion completed")
+            return
         }
+
+        // Fallback: Use clipboard-based insertion (more reliable)
+        self.log("[TypingService] CGEvent failed, trying clipboard fallback")
+        if self.insertTextViaClipboard(text) {
+            self.log("[TypingService] SUCCESS: Clipboard insertion completed")
+            return
+        }
+
+        // Last resort: Character-by-character
+        self.log("[TypingService] WARNING: All methods failed, trying character-by-character")
+        for (index, char) in text.enumerated() {
+            if index % 10 == 0 {
+                self.log("[TypingService] Typing character \(index + 1)/\(text.count)")
+            }
+            self.typeCharacter(char)
+            usleep(1000)
+        }
+        self.log("[TypingService] Character-by-character typing completed")
     }
 
     private func insertTextBulkInstant(_ text: String) -> Bool {
         self.log("[TypingService] Starting INSTANT bulk CGEvent insertion (NO CLIPBOARD)")
+
+        // Get target app PID for more reliable event posting
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+            self.log("[TypingService] ERROR: No frontmost application")
+            return false
+        }
+        let targetPID = frontApp.processIdentifier
 
         // Create single CGEvent with entire text - truly instant
         guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else {
@@ -98,17 +112,65 @@ final class TypingService {
 
         // Convert entire text to UTF16
         let utf16Array = Array(text.utf16)
-        self.log("[TypingService] Converting \(text.count) characters to single CGEvent")
+        self.log("[TypingService] Converting \(text.count) characters to single CGEvent for PID \(targetPID)")
 
         // Set the entire text as unicode string
         event.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
 
-        // Post single event - INSTANT insertion
-        event.post(tap: .cghidEventTap)
-        self.log("[TypingService] Posted single CGEvent with entire text - INSTANT!")
+        // Post to specific PID for more reliable delivery
+        // This targets the frontmost application directly instead of going through HID layer
+        event.postToPid(targetPID)
+        self.log("[TypingService] Posted single CGEvent with entire text to PID \(targetPID) - INSTANT!")
 
         return true
     }
+
+    /// Clipboard-based text insertion as fallback
+    /// More reliable but slightly slower - copies text to clipboard then pastes
+    private func insertTextViaClipboard(_ text: String) -> Bool {
+        self.log("[TypingService] Starting clipboard-based insertion")
+
+        // Save current clipboard content
+        let pasteboard = NSPasteboard.general
+        let previousContent = pasteboard.string(forType: .string)
+
+        // Copy our text to clipboard
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        // Simulate Cmd+V
+        guard let cmdVDown = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true), // 9 = 'V'
+              let cmdVUp = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false)
+        else {
+            self.log("[TypingService] ERROR: Failed to create Cmd+V events")
+            // Restore clipboard
+            if let prev = previousContent {
+                pasteboard.clearContents()
+                pasteboard.setString(prev, forType: .string)
+            }
+            return false
+        }
+
+        cmdVDown.flags = .maskCommand
+        cmdVUp.flags = .maskCommand
+
+        cmdVDown.post(tap: .cghidEventTap)
+        usleep(10_000) // 10ms delay
+        cmdVUp.post(tap: .cghidEventTap)
+
+        self.log("[TypingService] Cmd+V sent via clipboard insertion")
+
+        // Brief delay then restore clipboard
+        usleep(100_000) // 100ms delay for paste to complete
+        if let prev = previousContent {
+            pasteboard.clearContents()
+            pasteboard.setString(prev, forType: .string)
+            self.log("[TypingService] Restored previous clipboard content")
+        }
+
+        return true
+    }
+
 
     private func insertTextViaAccessibility(_ text: String) -> Bool {
         self.log("[TypingService] Starting Accessibility API insertion")

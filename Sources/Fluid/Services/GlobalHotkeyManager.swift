@@ -231,7 +231,10 @@ final class GlobalHotkeyManager: NSObject {
                 self.setupGlobalHotkeyWithRetry()
             }
 
-            return nil
+            // CRITICAL: Return the event to let it pass through during recovery.
+            // Previously returning nil would consume/block all keyboard events
+            // (including CGEvent text insertion) during the recovery period.
+            return Unmanaged.passUnretained(event)
         }
 
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
