@@ -23,14 +23,17 @@ struct AnalyticsPrivacyView: View {
 
             Divider().opacity(0.4)
 
+            self.contactInfoView
+
+            Divider().opacity(0.4)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     self.sectionTitle("We collect")
-                    self.bullet("Basic app/device info (app version, macOS version, and whether you’re on Apple Silicon or Intel).")
-                    self.bullet("A few on/off settings (for example: AI processing, live preview, press-and-hold, copy-to-clipboard).")
-                    self.bullet("Which features were used (for example: dictation, Command Mode, Write/Rewrite, meeting transcription).")
-                    self.bullet("Approximate ranges only (not exact values), like how long something took or how many words were dictated.")
-                    self.bullet("Whether something worked and high-level error categories (no detailed logs).")
+                    self.bullet("Basic app/device info (app version, macOS version, etc.)")
+                    self.bullet("Which features were used (for example: dictation, Command Mode etc.)")
+                    self.bullet("Approximate ranges only (not exact values), such as duration or word count.")
+                    self.bullet("Whether something worked and high-level error info.")
 
                     self.sectionTitle("We do NOT collect")
                     self.bullet("Any transcription text or audio.")
@@ -51,6 +54,39 @@ struct AnalyticsPrivacyView: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(self.theme.palette.cardBackground.opacity(0.2))
+    }
+
+    private var contactInfoView: some View {
+        Text(self.contactInfoText)
+            .font(.system(size: 13))
+            .foregroundStyle(.primary)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1)
+            )
+    }
+
+    private var contactInfoText: AttributedString {
+        var text = AttributedString(
+            "If you have any concerns we would love to hear about it, please email alticdev@gmail.com or file an issue in our GitHub."
+        )
+
+        if let emailRange = text.range(of: "alticdev@gmail.com") {
+            text[emailRange].link = URL(string: "mailto:alticdev@gmail.com")
+            text[emailRange].foregroundColor = self.theme.palette.accent
+        }
+
+        if let githubRange = text.range(of: "GitHub") {
+            text[githubRange].link = URL(string: "https://github.com/altic-dev/FluidVoice")
+            text[githubRange].foregroundColor = self.theme.palette.accent
+        }
+
+        return text
     }
 
     private func sectionTitle(_ text: String) -> some View {
