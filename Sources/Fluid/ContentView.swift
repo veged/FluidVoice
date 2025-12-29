@@ -133,13 +133,13 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 self.sidebarView
                     .frame(width: 250)
-                
+
                 // Fixed separator to replace the draggable split view divider
                 Rectangle()
                     .fill(self.theme.palette.separator)
                     .frame(width: 1)
                     .ignoresSafeArea()
-                
+
                 self.detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
