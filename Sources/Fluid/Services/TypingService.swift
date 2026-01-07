@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 
 final class TypingService {
@@ -10,6 +11,7 @@ final class TypingService {
     }
 
     private func log(_ message: @autoclosure () -> String) {
+        guard TypingService.isLoggingEnabled else { return }
         DebugLogger.shared.debug(message(), source: "TypingService")
     }
 
@@ -65,14 +67,41 @@ final class TypingService {
             self.log("[TypingService] WARNING: Could not get frontmost application")
         }
 
+        // Determine the actual focused element + owning PID (more reliable than "frontmost app" for floating launchers)
+        let focusInfo = self.getSystemFocusedElementAndPID()
+        if let focusedPID = focusInfo?.pid {
+            self.log("[TypingService] Focused AX element PID: \(focusedPID)")
+        } else {
+            self.log("[TypingService] WARNING: Could not determine focused AX element PID")
+        }
+
+        if let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            self.log("[TypingService] Frontmost PID: \(frontPID)")
+        }
+
         // Check if we have permission to create events
         self.log("[TypingService] Accessibility trusted: \(AXIsProcessTrusted())")
 
-        // Primary: Try direct CGEvent insertion (fastest, no clipboard)
-        self.log("[TypingService] Trying CGEvent insertion")
-        if self.insertTextBulkInstant(text) {
-            self.log("[TypingService] SUCCESS: CGEvent insertion completed")
+        // Primary: Try Accessibility insertion into the actual focused element (best for floating/launcher UIs)
+        self.log("[TypingService] Trying Accessibility focused-element insertion")
+        if self.insertTextViaAccessibility(text) {
+            self.log("[TypingService] SUCCESS: Accessibility insertion completed")
             return
+        }
+
+        // Secondary: Try CGEvent unicode insertion, targeting the focused PID when available
+        if let focusedPID = focusInfo?.pid {
+            self.log("[TypingService] Trying CGEvent insertion targeting focused PID \(focusedPID)")
+            if self.insertTextBulkInstant(text, targetPID: focusedPID) {
+                self.log("[TypingService] SUCCESS: CGEvent focused-PID insertion completed")
+                return
+            }
+        } else {
+            self.log("[TypingService] No focused PID available, trying HID CGEvent insertion")
+            if self.insertTextBulkHIDInstant(text) {
+                self.log("[TypingService] SUCCESS: CGEvent HID insertion completed")
+                return
+            }
         }
 
         // Fallback: Use clipboard-based insertion (more reliable)
@@ -94,34 +123,55 @@ final class TypingService {
         self.log("[TypingService] Character-by-character typing completed")
     }
 
-    private func insertTextBulkInstant(_ text: String) -> Bool {
-        self.log("[TypingService] Starting INSTANT bulk CGEvent insertion (NO CLIPBOARD)")
+    private func insertTextBulkInstant(_ text: String, targetPID: pid_t) -> Bool {
+        self.log("[TypingService] Starting INSTANT bulk CGEvent insertion (NO CLIPBOARD) to PID \(targetPID)")
 
-        // Get target app PID for more reliable event posting
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-            self.log("[TypingService] ERROR: No frontmost application")
-            return false
-        }
-        let targetPID = frontApp.processIdentifier
-
-        // Create single CGEvent with entire text - truly instant
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else {
-            self.log("[TypingService] ERROR: Failed to create bulk CGEvent")
+        guard targetPID > 0 else {
+            self.log("[TypingService] ERROR: Invalid target PID \(targetPID)")
             return false
         }
 
         // Convert entire text to UTF16
         let utf16Array = Array(text.utf16)
-        self.log("[TypingService] Converting \(text.count) characters to single CGEvent for PID \(targetPID)")
+        self.log("[TypingService] Converting \(text.count) characters to CGEvents (UTF16 count \(utf16Array.count))")
 
-        // Set the entire text as unicode string
-        event.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
+        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+        else {
+            self.log("[TypingService] ERROR: Failed to create bulk CGEvents")
+            return false
+        }
 
-        // Post to specific PID for more reliable delivery
-        // This targets the frontmost application directly instead of going through HID layer
-        event.postToPid(targetPID)
-        self.log("[TypingService] Posted single CGEvent with entire text to PID \(targetPID) - INSTANT!")
+        keyDown.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
+        keyUp.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
 
+        keyDown.postToPid(targetPID)
+        usleep(2000)
+        keyUp.postToPid(targetPID)
+
+        self.log("[TypingService] Posted bulk CGEvents to PID \(targetPID)")
+        return true
+    }
+
+    private func insertTextBulkHIDInstant(_ text: String) -> Bool {
+        self.log("[TypingService] Starting INSTANT bulk CGEvent insertion via HID (NO PID)")
+
+        let utf16Array = Array(text.utf16)
+        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+        else {
+            self.log("[TypingService] ERROR: Failed to create HID bulk CGEvents")
+            return false
+        }
+
+        keyDown.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
+        keyUp.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
+
+        keyDown.post(tap: .cghidEventTap)
+        usleep(2000)
+        keyUp.post(tap: .cghidEventTap)
+
+        self.log("[TypingService] Posted bulk CGEvents via HID tap")
         return true
     }
 
@@ -176,7 +226,7 @@ final class TypingService {
 
         // Try multiple strategies to find text input element
 
-        // Strategy 1: Get focused element directly
+        // Strategy 1: Get focused element directly (system-wide)
         self.log("[TypingService] Strategy 1: Getting focused UI element...")
         if let textElement = getFocusedTextElement() {
             self.log("[TypingService] Found focused text element")
@@ -294,6 +344,11 @@ final class TypingService {
             }
         }
 
+        self.log("[TypingService] Trying approach 0: Insert at cursor via kAXSelectedTextRangeAttribute + kAXValueAttribute")
+        if self.insertTextAtCursorUsingSelectedRange(element, text) {
+            return true
+        }
+
         // Try multiple approaches for text insertion
         self.log("[TypingService] Trying approach 1: Direct kAXValueAttribute")
         if self.setTextViaValue(element, text) {
@@ -320,6 +375,78 @@ final class TypingService {
             return stringValue
         }
         return nil
+    }
+
+    private func getSystemFocusedElementAndPID() -> (element: AXUIElement, pid: pid_t)? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElementRef)
+        guard result == .success, let focusedElementRef else { return nil }
+        guard CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() else { return nil }
+
+        let element = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        guard pid > 0 else { return nil }
+        return (element: element, pid: pid)
+    }
+
+    private func getElementStringValue(_ element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        guard result == .success, let str = value as? String else { return nil }
+        return str
+    }
+
+    private func getSelectedTextRange(_ element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value)
+        guard result == .success, let axValue = value else { return nil }
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
+
+        var range = CFRange()
+        let ok = AXValueGetValue(unsafeBitCast(axValue, to: AXValue.self), .cfRange, &range)
+        return ok ? range : nil
+    }
+
+    private func insertTextAtCursorUsingSelectedRange(_ element: AXUIElement, _ text: String) -> Bool {
+        guard let currentValue = self.getElementStringValue(element) else {
+            self.log("[TypingService] Cursor insert failed: could not read kAXValueAttribute")
+            return false
+        }
+        guard var range = self.getSelectedTextRange(element) else {
+            self.log("[TypingService] Cursor insert failed: could not read kAXSelectedTextRangeAttribute")
+            return false
+        }
+
+        // CFRange is in UTF16 units. Use NSString to apply NSRange safely.
+        let currentNSString = currentValue as NSString
+        let maxLen = currentNSString.length
+
+        let safeLoc = max(0, min(range.location, maxLen))
+        let safeLen = max(0, min(range.length, maxLen - safeLoc))
+        range = CFRange(location: safeLoc, length: safeLen)
+
+        let mutable = NSMutableString(string: currentValue)
+        mutable.replaceCharacters(in: NSRange(location: range.location, length: range.length), with: text)
+        let newValue = mutable as String
+
+        let setResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newValue as CFString)
+        guard setResult == .success else {
+            self.log("[TypingService] Cursor insert failed: setting kAXValueAttribute error \(setResult.rawValue)")
+            return false
+        }
+
+        // Move caret to just after inserted text (best-effort)
+        let insertedLen = (text as NSString).length
+        var newRange = CFRange(location: range.location + insertedLen, length: 0)
+        if let axRange = AXValueCreate(.cfRange, &newRange) {
+            _ = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+        }
+
+        self.log("[TypingService] SUCCESS: Inserted text using selected range + value")
+        return true
     }
 
     // Why is it working now? And why is it not working now?
