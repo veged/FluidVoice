@@ -1397,10 +1397,6 @@ struct AISettingsView: View {
                 Button("Save Provider") { self.saveNewProvider() }
                     .buttonStyle(GlassButtonStyle())
                     .disabled(self.newProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.newProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Cancel") { self.showingSaveProvider = false; self.newProviderName = ""; self.newProviderBaseURL = ""; self.newProviderApiKey = ""; self.newProviderModels = "" }
-                    .buttonStyle(GlassButtonStyle())
-                    .disabled(self.newProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self
-                        .newProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Cancel") {
                     self.showingSaveProvider = false; self.newProviderName = ""; self.newProviderBaseURL = ""; self
                         .newProviderApiKey = ""; self.newProviderModels = ""
