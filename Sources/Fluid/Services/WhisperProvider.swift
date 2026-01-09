@@ -16,6 +16,14 @@ final class WhisperProvider: TranscriptionProvider {
     private(set) var isReady: Bool = false
     private var loadedModelName: String?
 
+    private let overriddenModelDirectory: URL?
+    private let urlSession: URLSession
+
+    init(modelDirectory: URL? = nil, urlSession: URLSession = .shared) {
+        self.overriddenModelDirectory = modelDirectory
+        self.urlSession = urlSession
+    }
+
     /// Model filename to use - reads from the unified SpeechModel setting
     /// Models: tiny (~75MB), base (~142MB), small (~466MB), medium (~1.5GB), large (~2.9GB)
     private var modelName: String {
@@ -23,10 +31,17 @@ final class WhisperProvider: TranscriptionProvider {
     }
 
     private var modelURL: URL {
-        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            preconditionFailure("Could not find caches directory")
+        let directory: URL
+        if let overriddenModelDirectory {
+            directory = overriddenModelDirectory
+        } else {
+            guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+                preconditionFailure("Could not find caches directory")
+            }
+            directory = cacheDir.appendingPathComponent("WhisperModels")
         }
-        return cacheDir.appendingPathComponent("WhisperModels").appendingPathComponent(self.modelName)
+
+        return directory.appendingPathComponent(self.modelName)
     }
 
     private var modelDirectory: URL {
@@ -113,53 +128,76 @@ final class WhisperProvider: TranscriptionProvider {
 
         DebugLogger.shared.info("WhisperProvider: Downloading from \(modelURLString)", source: "WhisperProvider")
 
-        do {
-            let (tempURL, response) = try await URLSession.shared.download(from: url)
+        let maxAttempts = 3
+        for attempt in 1...maxAttempts {
+            do {
+                let (tempURL, response) = try await self.urlSession.download(from: url)
 
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw NSError(
-                    domain: "WhisperProvider",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Invalid server response"]
-                )
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                throw NSError(
-                    domain: "WhisperProvider",
-                    code: httpResponse.statusCode,
-                    userInfo: [NSLocalizedDescriptionKey: "Failed to download model (HTTP \(httpResponse.statusCode))"]
-                )
-            }
-
-            // Move to final location
-            if FileManager.default.fileExists(atPath: self.modelURL.path) {
-                try FileManager.default.removeItem(at: self.modelURL)
-            }
-            try FileManager.default.moveItem(at: tempURL, to: self.modelURL)
-
-            DebugLogger.shared.info("WhisperProvider: Model downloaded successfully", source: "WhisperProvider")
-        } catch let error as NSError {
-            // Provide user-friendly error messages
-            if error.domain == NSURLErrorDomain {
-                let message: String
-                switch error.code {
-                case NSURLErrorNotConnectedToInternet:
-                    message = "No internet connection. Please connect to the internet to download the Whisper model."
-                case NSURLErrorTimedOut:
-                    message = "Download timed out. Please check your internet connection and try again."
-                case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost:
-                    message = "Cannot reach download server. Please check your internet connection."
-                default:
-                    message = "Network error: \(error.localizedDescription)"
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw NSError(
+                        domain: "WhisperProvider",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Invalid server response"]
+                    )
                 }
-                throw NSError(
-                    domain: "WhisperProvider",
-                    code: error.code,
-                    userInfo: [NSLocalizedDescriptionKey: message]
-                )
+
+                guard httpResponse.statusCode == 200 else {
+                    throw NSError(
+                        domain: "WhisperProvider",
+                        code: httpResponse.statusCode,
+                        userInfo: [NSLocalizedDescriptionKey: "Failed to download model (HTTP \(httpResponse.statusCode))"]
+                    )
+                }
+
+                // Move to final location
+                if FileManager.default.fileExists(atPath: self.modelURL.path) {
+                    try FileManager.default.removeItem(at: self.modelURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: self.modelURL)
+
+                DebugLogger.shared.info("WhisperProvider: Model downloaded successfully", source: "WhisperProvider")
+                return
+            } catch let error as NSError {
+                let isLastAttempt = attempt == maxAttempts
+
+                // Provide user-friendly error messages
+                if error.domain == NSURLErrorDomain {
+                    let message: String
+                    switch error.code {
+                    case NSURLErrorNotConnectedToInternet:
+                        message = "No internet connection. Please connect to the internet to download the Whisper model."
+                    case NSURLErrorTimedOut:
+                        message = "Download timed out. Please check your internet connection and try again."
+                    case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost:
+                        message = "Cannot reach download server. Please check your internet connection."
+                    default:
+                        message = "Network error: \(error.localizedDescription)"
+                    }
+
+                    if isLastAttempt {
+                        throw NSError(
+                            domain: "WhisperProvider",
+                            code: error.code,
+                            userInfo: [NSLocalizedDescriptionKey: message]
+                        )
+                    }
+
+                    DebugLogger.shared.warning(
+                        "WhisperProvider: Download attempt \(attempt)/\(maxAttempts) failed (\(message)). Retrying...",
+                        source: "WhisperProvider"
+                    )
+                } else {
+                    if isLastAttempt { throw error }
+                    DebugLogger.shared.warning(
+                        "WhisperProvider: Download attempt \(attempt)/\(maxAttempts) failed (\(error.localizedDescription)). Retrying...",
+                        source: "WhisperProvider"
+                    )
+                }
+
+                // Backoff: 1s, 2s, 4s
+                let delayNanos = UInt64(1_000_000_000) << UInt64(attempt - 1)
+                try await Task.sleep(nanoseconds: delayNanos)
             }
-            throw error
         }
     }
 }

@@ -14,7 +14,7 @@ jobs:
   build:
     name: Build FluidVoice
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     
     steps:
     - name: Checkout code
@@ -22,6 +22,15 @@ jobs:
 
     - name: Install SwiftLint
       run: brew install swiftlint
+
+    - name: Install xcpretty
+      run: sudo gem install xcpretty
+
+    - name: Cache Whisper models
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Caches/WhisperModels
+        key: ${{ runner.os }}-whisper-models-v1
 
     - name: Run SwiftLint (strict)
       run: swiftlint --strict --config .swiftlint.yml
@@ -50,7 +59,7 @@ jobs:
           | xcpretty
       continue-on-error: false
       
-    - name: Run Tests (if available)
+    - name: Run Tests
       run: |
         set -o pipefail
         xcodebuild test \
@@ -59,5 +68,5 @@ jobs:
           -destination 'platform=macOS,arch=arm64' \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
           | xcpretty
-      continue-on-error: true  # Don't fail if no tests exist

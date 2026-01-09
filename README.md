@@ -146,6 +146,24 @@ Contributions are welcome! Please create an issue first to discuss any major cha
 
 Follow development updates on X: [@ALTIC_DEV](https://x.com/ALTIC_DEV)
 
+## Run integration dictation test
+
+```bash
+xcodebuild test -project Fluid.xcodeproj -scheme Fluid -destination 'platform=macOS'
+```
+
+If you run into a test bundle load error related to code signing/Team ID, run without overriding code signing flags (the command above), or explicitly:
+
+```bash
+xcodebuild test -project Fluid.xcodeproj -scheme Fluid -destination 'platform=macOS' CODE_SIGN_STYLE=Automatic
+```
+
+CI uses unsigned builds:
+
+```bash
+xcodebuild test -project Fluid.xcodeproj -scheme Fluid -destination 'platform=macOS' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+```
+
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
