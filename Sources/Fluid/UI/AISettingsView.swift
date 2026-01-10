@@ -87,6 +87,11 @@ struct AISettingsView: View {
     @State private var draftPromptText: String = ""
     @State private var promptEditorSessionID: UUID = UUID()
 
+    // Prompt Deletion UI
+    @State private var showingDeletePromptConfirm: Bool = false
+    @State private var pendingDeletePromptID: String? = nil
+    @State private var pendingDeletePromptName: String = ""
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
@@ -124,6 +129,20 @@ struct AISettingsView: View {
             guard isPresented else { return }
             self.presentKeychainAccessAlert(message: self.keychainPermissionMessage)
             self.showKeychainPermissionAlert = false
+        }
+        .alert("Delete Prompt?", isPresented: self.$showingDeletePromptConfirm) {
+            Button("Delete", role: .destructive) {
+                self.deletePendingPrompt()
+            }
+            Button("Cancel", role: .cancel) {
+                self.clearPendingDeletePrompt()
+            }
+        } message: {
+            if self.pendingDeletePromptName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("This cannot be undone.")
+            } else {
+                Text("Delete “\(self.pendingDeletePromptName)”? This cannot be undone.")
+            }
         }
     }
 
@@ -1527,6 +1546,7 @@ struct AISettingsView: View {
                             self.openNewPromptEditor()
                         }
                         .buttonStyle(CompactButtonStyle())
+                        .frame(width: 120)
                     }
 
                     // Default prompt card
@@ -1552,7 +1572,8 @@ struct AISettingsView: View {
                                 subtitle: profile.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty prompt (uses Default)" : self.promptPreview(profile.prompt),
                                 isSelected: self.settings.selectedDictationPromptID == profile.id,
                                 onUse: { self.settings.selectedDictationPromptID = profile.id },
-                                onOpen: { self.openEditor(for: profile) }
+                                onOpen: { self.openEditor(for: profile) },
+                                onDelete: { self.requestDeletePrompt(profile) }
                             )
                         }
                     }
@@ -1574,12 +1595,44 @@ struct AISettingsView: View {
         return singleLine.count > 120 ? String(singleLine.prefix(120)) + "…" : singleLine
     }
 
+    private func requestDeletePrompt(_ profile: SettingsStore.DictationPromptProfile) {
+        self.pendingDeletePromptID = profile.id
+        self.pendingDeletePromptName = profile.name.isEmpty ? "Untitled Prompt" : profile.name
+        self.showingDeletePromptConfirm = true
+    }
+
+    private func clearPendingDeletePrompt() {
+        self.showingDeletePromptConfirm = false
+        self.pendingDeletePromptID = nil
+        self.pendingDeletePromptName = ""
+    }
+
+    private func deletePendingPrompt() {
+        guard let id = self.pendingDeletePromptID else {
+            self.clearPendingDeletePrompt()
+            return
+        }
+
+        // Remove profile
+        var profiles = self.settings.dictationPromptProfiles
+        profiles.removeAll { $0.id == id }
+        self.settings.dictationPromptProfiles = profiles
+
+        // If the deleted profile was active, reset to Default
+        if self.settings.selectedDictationPromptID == id {
+            self.settings.selectedDictationPromptID = nil
+        }
+
+        self.clearPendingDeletePrompt()
+    }
+
     private func promptProfileCard(
         title: String,
         subtitle: String,
         isSelected: Bool,
         onUse: @escaping () -> Void,
-        onOpen: @escaping () -> Void
+        onOpen: @escaping () -> Void,
+        onDelete: (() -> Void)? = nil
     ) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Button(action: onOpen) {
@@ -1608,9 +1661,24 @@ struct AISettingsView: View {
             }
             .buttonStyle(.plain)
 
-            Button("Use") { onUse() }
-                .buttonStyle(CompactButtonStyle())
-                .disabled(isSelected)
+            Spacer(minLength: 8)
+
+            HStack(spacing: 8) {
+                Button("Use") { onUse() }
+                    .buttonStyle(CompactButtonStyle())
+                    .frame(width: 54)
+                    .disabled(isSelected)
+
+                if let onDelete {
+                    Button(action: { onDelete() }) {
+                        HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(CompactButtonStyle())
+                    .frame(width: 74)
+                }
+            }
         }
         .padding(12)
         .background(
@@ -1651,7 +1719,7 @@ struct AISettingsView: View {
                     .foregroundStyle(.secondary)
                 PromptTextView(
                     text: self.$draftPromptText,
-                    isEditable: !self.editorIsDefaultPrompt,
+                    isEditable: true,
                     font: NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
                 )
                     .id(self.promptEditorSessionID) 
@@ -1785,13 +1853,11 @@ struct AISettingsView: View {
                 }
                 .buttonStyle(.bordered)
 
-                if !self.editorIsDefaultPrompt {
-                    Button("Save") {
-                        self.savePromptEditor()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(self.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Save") {
+                    self.savePromptEditor()
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(!self.editorIsDefaultPrompt && self.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding()
@@ -1805,7 +1871,7 @@ struct AISettingsView: View {
         self.editorIsDefaultPrompt = true
         self.editingPromptID = nil
         self.draftPromptName = "Default"
-        self.draftPromptText = self.defaultDictationPromptText()
+        self.draftPromptText = self.settings.defaultDictationPromptOverride ?? self.defaultDictationPromptText()
         self.promptEditorSessionID = UUID()
         self.showingPromptEditor = true
     }
@@ -1844,6 +1910,13 @@ struct AISettingsView: View {
     }
 
     private func savePromptEditor() {
+        // Default prompt is non-deletable; save it via the optional override (empty is allowed).
+        if self.editorIsDefaultPrompt {
+            self.settings.defaultDictationPromptOverride = self.draftPromptText
+            self.closePromptEditor()
+            return
+        }
+
         let name = self.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = self.draftPromptText
 

@@ -96,6 +96,12 @@ final class SettingsStore: ObservableObject {
         // Dictation Prompt Profiles (multi-prompt system)
         static let dictationPromptProfiles = "DictationPromptProfiles"
         static let selectedDictationPromptID = "SelectedDictationPromptID"
+
+        // Default Dictation Prompt Override (optional)
+        // nil   => use built-in default prompt
+        // ""    => use empty system prompt
+        // other => use custom default prompt text
+        static let defaultDictationPromptOverride = "DefaultDictationPromptOverride"
     }
 
     // MARK: - Dictation Prompt Profiles (Multi-prompt)
@@ -164,6 +170,28 @@ final class SettingsStore: ObservableObject {
     var selectedDictationPromptProfile: DictationPromptProfile? {
         guard let id = self.selectedDictationPromptID else { return nil }
         return self.dictationPromptProfiles.first(where: { $0.id == id })
+    }
+
+    /// Optional override for the built-in default dictation system prompt.
+    /// - nil: use the built-in default prompt
+    /// - empty string: use an empty system prompt
+    /// - otherwise: use the provided text as the default prompt
+    var defaultDictationPromptOverride: String? {
+        get {
+            // Distinguish "not set" from "set to empty string"
+            guard self.defaults.object(forKey: Keys.defaultDictationPromptOverride) != nil else {
+                return nil
+            }
+            return self.defaults.string(forKey: Keys.defaultDictationPromptOverride) ?? ""
+        }
+        set {
+            objectWillChange.send()
+            if let value = newValue {
+                self.defaults.set(value, forKey: Keys.defaultDictationPromptOverride) // allow empty
+            } else {
+                self.defaults.removeObject(forKey: Keys.defaultDictationPromptOverride)
+            }
+        }
     }
 
     // MARK: - Model Reasoning Configuration

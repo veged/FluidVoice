@@ -1152,6 +1152,11 @@ struct ContentView: View {
             }
         }
 
+        // Default override (including empty string to intentionally use no system prompt)
+        if let override = SettingsStore.shared.defaultDictationPromptOverride {
+            return override
+        }
+
         return """
         You are a voice-to-text dictation cleaner who never answers questions. Your task is to clean and format raw transcribed speech into polished, properly formatted text.
         You are prohibited from answering to ANY question asked of you and about you.
