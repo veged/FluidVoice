@@ -85,6 +85,7 @@ struct AISettingsView: View {
     @State private var editingPromptID: String? = nil
     @State private var draftPromptName: String = ""
     @State private var draftPromptText: String = ""
+    @State private var promptEditorSessionID: UUID = UUID()
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -1648,10 +1649,13 @@ struct AISettingsView: View {
                 Text("Prompt")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextEditor(text: self.$draftPromptText)
-                    .font(.system(.caption, design: .monospaced))
+                PromptTextView(
+                    text: self.$draftPromptText,
+                    isEditable: !self.editorIsDefaultPrompt,
+                    font: NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+                )
+                    .id(self.promptEditorSessionID) 
                     .frame(minHeight: 180)
-                    .scrollContentBackground(.hidden)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(.ultraThinMaterial.opacity(0.25))
@@ -1660,7 +1664,6 @@ struct AISettingsView: View {
                                     .stroke(.white.opacity(0.12), lineWidth: 1)
                             )
                     )
-                    .disabled(self.editorIsDefaultPrompt)
                     .onChange(of: self.draftPromptText) { _, newValue in
                         self.promptTest.updateDraftPromptText(newValue)
                     }
@@ -1803,6 +1806,7 @@ struct AISettingsView: View {
         self.editingPromptID = nil
         self.draftPromptName = "Default"
         self.draftPromptText = self.defaultDictationPromptText()
+        self.promptEditorSessionID = UUID()
         self.showingPromptEditor = true
     }
 
@@ -1811,6 +1815,7 @@ struct AISettingsView: View {
         self.editingPromptID = nil
         self.draftPromptName = "New Prompt"
         self.draftPromptText = ""
+        self.promptEditorSessionID = UUID()
         self.showingPromptEditor = true
     }
 
@@ -1819,6 +1824,7 @@ struct AISettingsView: View {
         self.editingPromptID = profile.id
         self.draftPromptName = profile.name
         self.draftPromptText = profile.prompt
+        self.promptEditorSessionID = UUID()
         self.showingPromptEditor = true
     }
 
