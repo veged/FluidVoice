@@ -38,4 +38,3 @@ final class DictationPromptTestCoordinator: ObservableObject {
         self.draftPromptText = text
     }
 }
-

@@ -107,7 +107,7 @@ struct AISettingsView: View {
     @State private var promptEditorMode: PromptEditorMode? = nil
     @State private var draftPromptName: String = ""
     @State private var draftPromptText: String = ""
-    @State private var promptEditorSessionID: UUID = UUID()
+    @State private var promptEditorSessionID: UUID = .init()
 
     // Prompt Deletion UI
     @State private var showingDeletePromptConfirm: Bool = false
@@ -1729,8 +1729,8 @@ struct AISettingsView: View {
                         ? "This is the built-in prompt. Create a custom prompt to override it."
                         : "Name and prompt text are used as the system prompt for dictation cleanup."
                     )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 Spacer()
             }
@@ -1754,22 +1754,23 @@ struct AISettingsView: View {
                     isEditable: true,
                     font: NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
                 )
-                    .id(self.promptEditorSessionID) 
-                    .frame(minHeight: 180)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial.opacity(0.25))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(.white.opacity(0.12), lineWidth: 1)
-                            )
-                    )
-                    .onChange(of: self.draftPromptText) { _, newValue in
-                        self.promptTest.updateDraftPromptText(newValue)
-                    }
+                .id(self.promptEditorSessionID)
+                .frame(minHeight: 180)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.ultraThinMaterial.opacity(0.25))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(.white.opacity(0.12), lineWidth: 1)
+                        )
+                )
+                .onChange(of: self.draftPromptText) { _, newValue in
+                    self.promptTest.updateDraftPromptText(newValue)
+                }
             }
 
             // MARK: - Test Mode
+
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "waveform")
