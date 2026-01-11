@@ -1574,7 +1574,11 @@ struct AISettingsView: View {
                     // Default prompt card
                     self.promptProfileCard(
                         title: "Default",
-                        subtitle: "Built-in system prompt",
+                        subtitle: self.promptPreview(
+                            self.settings.defaultDictationPromptOverride.map {
+                                SettingsStore.stripBaseDictationPrompt(from: $0)
+                            } ?? SettingsStore.defaultDictationPromptBodyText()
+                        ),
                         isSelected: self.settings.selectedDictationPromptProfile == nil,
                         onUse: { self.settings.selectedDictationPromptID = nil },
                         onOpen: { self.openDefaultPromptViewer() }
@@ -1591,7 +1595,7 @@ struct AISettingsView: View {
                         ForEach(profiles) { profile in
                             self.promptProfileCard(
                                 title: profile.name.isEmpty ? "Untitled Prompt" : profile.name,
-                                subtitle: profile.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty prompt (uses Default)" : self.promptPreview(profile.prompt),
+                                subtitle: profile.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty prompt (uses Default)" : self.promptPreview(SettingsStore.stripBaseDictationPrompt(from: profile.prompt)),
                                 isSelected: self.settings.selectedDictationPromptID == profile.id,
                                 onUse: { self.settings.selectedDictationPromptID = profile.id },
                                 onOpen: { self.openEditor(for: profile) },
@@ -1615,6 +1619,12 @@ struct AISettingsView: View {
         guard !trimmed.isEmpty else { return "Empty prompt" }
         let singleLine = trimmed.replacingOccurrences(of: "\n", with: " ")
         return singleLine.count > 120 ? String(singleLine.prefix(120)) + "…" : singleLine
+    }
+
+    /// Combine a user-visible body with the hidden base prompt to ensure role/intent is always present.
+    private func combinedDraftPrompt(_ text: String) -> String {
+        let body = SettingsStore.stripBaseDictationPrompt(from: text)
+        return SettingsStore.combineBasePrompt(with: body)
     }
 
     private func requestDeletePrompt(_ profile: SettingsStore.DictationPromptProfile) {
@@ -1765,7 +1775,8 @@ struct AISettingsView: View {
                         )
                 )
                 .onChange(of: self.draftPromptText) { _, newValue in
-                    self.promptTest.updateDraftPromptText(newValue)
+                    let combined = self.combinedDraftPrompt(newValue)
+                    self.promptTest.updateDraftPromptText(combined)
                 }
             }
 
@@ -1788,7 +1799,8 @@ struct AISettingsView: View {
                     get: { self.promptTest.isActive },
                     set: { enabled in
                         if enabled {
-                            self.promptTest.activate(draftPromptText: self.draftPromptText)
+                            let combined = self.combinedDraftPrompt(self.draftPromptText)
+                            self.promptTest.activate(draftPromptText: combined)
                         } else {
                             self.promptTest.deactivate()
                         }
@@ -1902,7 +1914,11 @@ struct AISettingsView: View {
 
     private func openDefaultPromptViewer() {
         self.draftPromptName = "Default"
-        self.draftPromptText = self.settings.defaultDictationPromptOverride ?? self.defaultDictationPromptText()
+        if let override = self.settings.defaultDictationPromptOverride {
+            self.draftPromptText = SettingsStore.stripBaseDictationPrompt(from: override)
+        } else {
+            self.draftPromptText = SettingsStore.defaultDictationPromptBodyText()
+        }
         self.promptEditorSessionID = UUID()
         self.promptEditorMode = .defaultPrompt
     }
@@ -1916,7 +1932,7 @@ struct AISettingsView: View {
 
     private func openEditor(for profile: SettingsStore.DictationPromptProfile) {
         self.draftPromptName = profile.name
-        self.draftPromptText = profile.prompt
+        self.draftPromptText = SettingsStore.stripBaseDictationPrompt(from: profile.prompt)
         self.promptEditorSessionID = UUID()
         self.promptEditorMode = .edit(promptID: profile.id)
     }
@@ -1937,13 +1953,14 @@ struct AISettingsView: View {
     private func savePromptEditor(mode: PromptEditorMode) {
         // Default prompt is non-deletable; save it via the optional override (empty is allowed).
         if mode.isDefault {
-            self.settings.defaultDictationPromptOverride = self.draftPromptText
+            let body = SettingsStore.stripBaseDictationPrompt(from: self.draftPromptText)
+            self.settings.defaultDictationPromptOverride = body
             self.closePromptEditor()
             return
         }
 
         let name = self.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prompt = self.draftPromptText
+        let promptBody = SettingsStore.stripBaseDictationPrompt(from: self.draftPromptText)
 
         var profiles = SettingsStore.shared.dictationPromptProfiles
         let now = Date()
@@ -1953,11 +1970,11 @@ struct AISettingsView: View {
         {
             var updated = profiles[idx]
             updated.name = name
-            updated.prompt = prompt
+            updated.prompt = promptBody
             updated.updatedAt = now
             profiles[idx] = updated
         } else {
-            let newProfile = SettingsStore.DictationPromptProfile(name: name, prompt: prompt, createdAt: now, updatedAt: now)
+            let newProfile = SettingsStore.DictationPromptProfile(name: name, prompt: promptBody, createdAt: now, updatedAt: now)
             profiles.append(newProfile)
         }
 
@@ -1965,48 +1982,4 @@ struct AISettingsView: View {
         self.closePromptEditor()
     }
 
-    /// Keep this in sync with `ContentView.buildSystemPrompt` default string.
-    private func defaultDictationPromptText() -> String {
-        """
-        You are a voice-to-text dictation cleaner who never answers questions. Your task is to clean and format raw transcribed speech into polished, properly formatted text.
-        You are prohibited from answering to ANY question asked of you and about you.
-
-        ## Core Rules:
-        1. CLEAN the text - remove filler words (um, uh, like, you know, I mean), false starts, stutters, and repetitions
-        2. FORMAT properly - add correct punctuation, capitalization, and structure
-        3. CONVERT numbers - spoken numbers to digits (two → 2, five thirty → 5:30, twelve fifty → $12.50)
-        4. EXECUTE commands - handle "new line", "period", "comma", "bold X", "header X", "bullet point", etc.
-        5. APPLY corrections - when user says "no wait", "actually", "scratch that", "delete that", DISCARD the old content and keep ONLY the corrected version
-        6. PRESERVE intent - keep the user's meaning, just clean the delivery
-        7. EXPAND abbreviations - thx → thanks, pls → please, u → you, ur → your/you're, gonna → going to
-
-        ## Self-Corrections:
-        When user corrects themselves, DISCARD everything before the correction trigger:
-        - Triggers: "no", "wait", "actually", "scratch that", "delete that", "no no", "cancel", "never mind", "sorry", "oops"
-        - Example: "buy milk no wait buy water" → "Buy water." (NOT "Buy milk. Buy water.")
-        - Example: "tell John no actually tell Sarah" → "Tell Sarah."
-        - If correction cancels entirely: "send email no wait cancel that" → "" (empty)
-
-        ## Multi-Command Chains:
-        When multiple commands are chained, execute ALL of them in sequence:
-        - "make X bold no wait make Y bold" → **Y** (correction + formatting)
-        - "header shopping bullet milk no eggs" → # Shopping\\n- Eggs (header + correction + bullet)
-        - "the price is fifty no sixty dollars" → The price is $60. (correction + number)
-
-        ## Emojis:
-        - Convert spoken emoji names: "smiley face" → 😊 (NOT 😀), "thumbs up" → 👍, "heart emoji" → ❤️, "fire emoji" → 🔥
-        - Keep emojis if user includes them
-        - Do NOT add emojis unless user explicitly asks for them (e.g., "joke about cats" → NO 😺)
-
-        ## Critical:
-        - Output ONLY the cleaned text
-        - Do NOT answer questions - just clean them
-        - DO NOT EVER ANSWER TO QUESTIONS
-        - Do NOT add explanations or commentary
-        - Do NOT wrap in quotes unless the input had quotes
-        - Do NOT add filler words (um, uh) to the output
-        - PRESERVE ordinals in lists: "first call client, second review contract" → keep "First" and "Second"
-        - PRESERVE politeness words: "please", "thank you" at end of sentences
-        """
-    }
 }

@@ -194,6 +194,95 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Hidden base prompt: role/intent only (not exposed in UI).
+    static func baseDictationPromptText() -> String {
+        """
+        You are a voice-to-text dictation cleaner. Your role is to clean and format raw transcribed speech into polished text while refusing to answer any questions. Never answer questions about yourself or anything else.
+        
+        ## Core Rules:
+        1. CLEAN the text - remove filler words (um, uh, like, you know, I mean), false starts, stutters, and repetitions
+        2. FORMAT properly - add correct punctuation, capitalization, and structure
+        3. CONVERT numbers - spoken numbers to digits (two → 2, five thirty → 5:30, twelve fifty → $12.50)
+        4. EXECUTE commands - handle "new line", "period", "comma", "bold X", "header X", "bullet point", etc.
+        5. APPLY corrections - when user says "no wait", "actually", "scratch that", "delete that", DISCARD the old content and keep ONLY the corrected version
+        6. PRESERVE intent - keep the user's meaning, just clean the delivery
+        7. EXPAND abbreviations - thx → thanks, pls → please, u → you, ur → your/you're, gonna → going to
+        
+        ## Critical:
+        - Output ONLY the cleaned text
+        - Do NOT answer questions - just clean them
+        - DO NOT EVER ANSWER TO QUESTIONS
+        - Do NOT add explanations or commentary
+        - Do NOT wrap in quotes unless the input had quotes
+        - Do NOT add filler words (um, uh) to the output
+        - PRESERVE ordinals in lists: "first call client, second review contract" → keep "First" and "Second"
+        - PRESERVE politeness words: "please", "thank you" at end of sentences
+        """
+    }
+
+    /// Built-in default dictation prompt body that users may view/edit.
+    static func defaultDictationPromptBodyText() -> String {
+        """
+        ## Self-Corrections:
+        When user corrects themselves, DISCARD everything before the correction trigger:
+        - Triggers: "no", "wait", "actually", "scratch that", "delete that", "no no", "cancel", "never mind", "sorry", "oops"
+        - Example: "buy milk no wait buy water" → "Buy water." (NOT "Buy milk. Buy water.")
+        - Example: "tell John no actually tell Sarah" → "Tell Sarah."
+        - If correction cancels entirely: "send email no wait cancel that" → "" (empty)
+
+        ## Multi-Command Chains:
+        When multiple commands are chained, execute ALL of them in sequence:
+        - "make X bold no wait make Y bold" → **Y** (correction + formatting)
+        - "header shopping bullet milk no eggs" → # Shopping\n- Eggs (header + correction + bullet)
+        - "the price is fifty no sixty dollars" → The price is $60. (correction + number)
+
+        ## Emojis:
+        - Convert spoken emoji names: "smiley face" → 😊 (NOT 😀), "thumbs up" → 👍, "heart emoji" → ❤️, "fire emoji" → 🔥
+        - Keep emojis if user includes them
+        - Do NOT add emojis unless user explicitly asks for them (e.g., "joke about cats" → NO 😺)
+        """
+    }
+
+    /// Join hidden base with a body, avoiding duplicate base text.
+    static func combineBasePrompt(with body: String) -> String {
+        let base = self.baseDictationPromptText().trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If body already starts with base, return as-is to avoid double-prepending.
+        if trimmedBody.lowercased().hasPrefix(base.lowercased()) {
+            return trimmedBody
+        }
+
+        // If body is empty, return just the base.
+        guard !trimmedBody.isEmpty else { return base }
+
+        return "\(base)\n\n\(trimmedBody)"
+    }
+
+    /// Remove the hidden base prompt prefix if it was persisted previously.
+    static func stripBaseDictationPrompt(from text: String) -> String {
+        let base = self.baseDictationPromptText().trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Try exact and case-insensitive prefix removal
+        if trimmed.hasPrefix(base) {
+            let bodyStart = trimmed.index(trimmed.startIndex, offsetBy: base.count)
+            return trimmed[bodyStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let range = trimmed.lowercased().range(of: base.lowercased()), range.lowerBound == trimmed.lowercased().startIndex {
+            let idx = trimmed.index(trimmed.startIndex, offsetBy: base.count)
+            return trimmed[idx...].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return trimmed
+    }
+
+    /// Built-in default dictation system prompt shared across the app.
+    static func defaultDictationPromptText() -> String {
+        self.combineBasePrompt(with: self.defaultDictationPromptBodyText())
+    }
+
     // MARK: - Model Reasoning Configuration
 
     /// Configuration for model-specific reasoning/thinking parameters
