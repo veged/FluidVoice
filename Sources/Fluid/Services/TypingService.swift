@@ -17,7 +17,58 @@ final class TypingService {
 
     private var isCurrentlyTyping = false
 
+    // MARK: - Focus helpers (shared)
+
+    /// Best-effort: returns the PID owning the currently focused accessibility element.
+    /// This is more reliable than NSWorkspace.frontmostApplication for floating overlays/launchers.
+    static func captureSystemFocusedPID() -> pid_t? {
+        // Accessibility is required to query system-focused AX element.
+        guard AXIsProcessTrusted() else { return nil }
+
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+
+        let result = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedElementRef
+        )
+        guard result == .success, let focusedElementRef else { return nil }
+        guard CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() else { return nil }
+
+        let element = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        guard pid > 0 else { return nil }
+        return pid
+    }
+
+    /// Best-effort: activates the app with the given PID, unless it's Fluid itself.
+    @discardableResult
+    static func activateApp(pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+
+        // Never try to re-activate ourselves; callers want focus to go back to the external app.
+        if let selfBundleID = Bundle.main.bundleIdentifier,
+           let targetBundleID = app.bundleIdentifier,
+           selfBundleID == targetBundleID
+        {
+            return false
+        }
+
+        return app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    }
+
+    // MARK: - Public API
+
     func typeTextInstantly(_ text: String) {
+        self.typeTextInstantly(text, preferredTargetPID: nil)
+    }
+
+    /// Types/inserts text, optionally preferring a specific target PID for CGEvent posting.
+    /// This helps when our overlay temporarily has focus; we can still target the original app.
+    func typeTextInstantly(_ text: String, preferredTargetPID: pid_t?) {
         self.log("[TypingService] ENTRY: typeTextInstantly called with text length: \(text.count)")
         self.log("[TypingService] Text preview: \"\(String(text.prefix(100)))\"")
 
@@ -52,13 +103,24 @@ final class TypingService {
             // Longer delay to ensure target app is ready and focused
             usleep(200_000) // 200ms delay - more reliable for app switching
             self.log("[TypingService] Delay completed, calling insertTextInstantly")
-            self.insertTextInstantly(text)
+            self.insertTextInstantly(text, preferredTargetPID: preferredTargetPID)
         }
     }
 
-    private func insertTextInstantly(_ text: String) {
+    // MARK: - Internal insertion pipeline
+
+    private func insertTextInstantly(_ text: String, preferredTargetPID: pid_t?) {
         self.log("[TypingService] insertTextInstantly called with \(text.count) characters")
         self.log("[TypingService] Attempting to type text: \"\(text.prefix(50))\(text.count > 50 ? "..." : "")\"")
+
+        // Preferred: target a specific PID when provided (e.g., the app that was focused when recording started).
+        if let preferredTargetPID, preferredTargetPID > 0 {
+            self.log("[TypingService] Trying CGEvent insertion targeting preferred PID \(preferredTargetPID)")
+            if self.insertTextBulkInstant(text, targetPID: preferredTargetPID) {
+                self.log("[TypingService] SUCCESS: CGEvent preferred-PID insertion completed")
+                return
+            }
+        }
 
         // Get frontmost app info
         if let frontApp = NSWorkspace.shared.frontmostApplication {

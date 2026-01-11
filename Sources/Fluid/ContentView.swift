@@ -1535,7 +1535,13 @@ struct ContentView: View {
             )
 
             if shouldTypeExternally {
-                self.asr.typeTextToActiveField(finalText)
+                Task { @MainActor in
+                    await self.restoreFocusToRecordingTarget()
+                    self.asr.typeTextToActiveField(
+                        finalText,
+                        preferredTargetPID: NotchContentState.shared.recordingTargetPID
+                    )
+                }
                 didTypeExternally = true
             }
         }
@@ -1558,6 +1564,12 @@ struct ContentView: View {
                     "method": AnalyticsOutputMethod.historyOnly.rawValue,
                 ]
             )
+        }
+
+        if didTypeExternally {
+            Task { @MainActor in
+                NotchOverlayManager.shared.hide()
+            }
         }
     }
 
@@ -1595,7 +1607,11 @@ struct ContentView: View {
             }
 
             // Type the rewritten text
-            self.asr.typeTextToActiveField(self.rewriteModeService.rewrittenText)
+            await self.restoreFocusToRecordingTarget()
+            self.asr.typeTextToActiveField(
+                self.rewriteModeService.rewrittenText,
+                preferredTargetPID: NotchContentState.shared.recordingTargetPID
+            )
             AnalyticsService.shared.capture(
                 .outputDelivered,
                 properties: [
@@ -1606,6 +1622,10 @@ struct ContentView: View {
 
             // Clear the rewrite service state for next use
             self.rewriteModeService.clearState()
+
+            Task { @MainActor in
+                NotchOverlayManager.shared.hide()
+            }
         } else {
             DebugLogger.shared.error("Rewrite failed - no result", source: "ContentView")
             AnalyticsService.shared.capture(
@@ -1643,6 +1663,12 @@ struct ContentView: View {
             self.menuBarManager.setOverlayMode(.dictation)
         }
 
+        // Capture the focused target PID BEFORE any overlay/UI changes.
+        // Used to restore focus when the user interacts with overlay dropdowns (e.g. prompt selection).
+        let focusedPID = TypingService.captureSystemFocusedPID()
+            ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+        NotchContentState.shared.recordingTargetPID = focusedPID
+
         let info = self.getCurrentAppInfo()
         self.recordingAppInfo = info
         DebugLogger.shared.debug("Captured recording app context: app=\(info.name), bundleId=\(info.bundleId), title=\(info.windowTitle)", source: "ContentView")
@@ -1656,6 +1682,17 @@ struct ContentView: View {
             } catch {
                 DebugLogger.shared.error("Failed to pre-load model: \(error)", source: "ContentView")
             }
+        }
+    }
+
+    /// Best-effort: re-activate the app that was focused when recording started.
+    /// Adds a short delay after activation so macOS can deliver focus before typing begins.
+    private func restoreFocusToRecordingTarget() async {
+        guard let pid = NotchContentState.shared.recordingTargetPID else { return }
+        let activated = TypingService.activateApp(pid: pid)
+        if activated {
+            // Small delay to allow window focus to settle before typing events fire.
+            try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
         }
     }
 

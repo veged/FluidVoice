@@ -1826,6 +1826,10 @@ final class ASRService: ObservableObject {
         self.typingService.typeTextInstantly(text)
     }
 
+    func typeTextToActiveField(_ text: String, preferredTargetPID: pid_t?) {
+        self.typingService.typeTextInstantly(text, preferredTargetPID: preferredTargetPID)
+    }
+
     /// Removes filler sounds from transcribed text
     static func removeFillerWords(_ text: String) -> String {
         guard SettingsStore.shared.removeFillerWordsEnabled else { return text }

@@ -323,12 +323,20 @@ struct BottomOverlayView: View {
                 Menu {
                     Button("Default") {
                         self.settings.selectedDictationPromptID = nil
+                        let pid = NotchContentState.shared.recordingTargetPID
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            if let pid { _ = TypingService.activateApp(pid: pid) }
+                        }
                     }
                     if !self.settings.dictationPromptProfiles.isEmpty {
                         Divider()
                         ForEach(self.settings.dictationPromptProfiles) { profile in
                             Button(profile.name.isEmpty ? "Untitled" : profile.name) {
                                 self.settings.selectedDictationPromptID = profile.id
+                                let pid = NotchContentState.shared.recordingTargetPID
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                    if let pid { _ = TypingService.activateApp(pid: pid) }
+                                }
                             }
                         }
                     }

@@ -21,6 +21,10 @@ class NotchContentState: ObservableObject {
     // Icon of the target app (where text will be typed)
     @Published var targetAppIcon: NSImage?
 
+    /// The PID of the app we should restore focus to after interacting with overlays.
+    /// Captured at recording start to keep the target stable for the session.
+    @Published var recordingTargetPID: pid_t? = nil
+
     // Cached transcription lines to avoid recomputing on every render
     @Published private(set) var cachedLine1: String = ""
     @Published private(set) var cachedLine2: String = ""
@@ -309,12 +313,20 @@ struct NotchExpandedView: View {
                 Menu {
                     Button("Default") {
                         self.settings.selectedDictationPromptID = nil
+                        let pid = NotchContentState.shared.recordingTargetPID
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            if let pid { _ = TypingService.activateApp(pid: pid) }
+                        }
                     }
                     if !self.settings.dictationPromptProfiles.isEmpty {
                         Divider()
                         ForEach(self.settings.dictationPromptProfiles) { profile in
                             Button(profile.name.isEmpty ? "Untitled" : profile.name) {
                                 self.settings.selectedDictationPromptID = profile.id
+                                let pid = NotchContentState.shared.recordingTargetPID
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                    if let pid { _ = TypingService.activateApp(pid: pid) }
+                                }
                             }
                         }
                     }
