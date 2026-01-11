@@ -53,7 +53,7 @@ struct AISettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
 
     @State private var appear = false
-    @State private var openAIBaseURL: String = "https://api.openai.com/v1"
+    @State private var openAIBaseURL: String = ModelRepository.shared.defaultBaseURL(for: "openai")
     @State private var enableAIProcessing: Bool = false
 
     // Model Management
@@ -63,6 +63,8 @@ struct AISettingsView: View {
     @State private var selectedModel: String = "gpt-4.1"
     @State private var showingAddModel: Bool = false
     @State private var newModelName: String = ""
+    @State private var isFetchingModels: Bool = false
+    @State private var fetchModelsError: String? = nil
 
     // Reasoning Configuration
     @State private var showingReasoningConfig: Bool = false
@@ -184,7 +186,8 @@ struct AISettingsView: View {
         for (key, models) in self.availableModelsByProvider {
             let lower = key.lowercased()
             let newKey: String
-            if lower == "openai" || lower == "groq" {
+            // Use ModelRepository to correctly identify ALL built-in providers
+            if ModelRepository.shared.isBuiltIn(lower) {
                 newKey = lower
             } else {
                 newKey = key.hasPrefix("custom:") ? key : "custom:\(key)"
@@ -199,7 +202,8 @@ struct AISettingsView: View {
         var normalizedSel: [String: String] = [:]
         for (key, model) in self.selectedModelByProvider {
             let lower = key.lowercased()
-            let newKey: String = (lower == "openai" || lower == "groq") ? lower :
+            // Use ModelRepository to correctly identify ALL built-in providers
+            let newKey: String = ModelRepository.shared.isBuiltIn(lower) ? lower :
                 (key.hasPrefix("custom:") ? key : "custom:\(key)")
             if let list = normalized[newKey], list.contains(model) { normalizedSel[newKey] = model }
         }
@@ -210,12 +214,11 @@ struct AISettingsView: View {
         if let saved = savedProviders.first(where: { $0.id == selectedProviderID }) {
             self.availableModels = saved.models
             self.openAIBaseURL = saved.baseURL // Set this FIRST
-        } else if self.selectedProviderID == "openai" {
-            self.openAIBaseURL = "https://api.openai.com/v1"
-            self.availableModels = self.availableModelsByProvider["openai"] ?? ModelRepository.shared.defaultModels(for: "openai")
-        } else if self.selectedProviderID == "groq" {
-            self.openAIBaseURL = "https://api.groq.com/openai/v1"
-            self.availableModels = self.availableModelsByProvider["groq"] ?? ModelRepository.shared.defaultModels(for: "groq")
+        } else if ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
+            // Handle all built-in providers using ModelRepository
+            self.openAIBaseURL = ModelRepository.shared.defaultBaseURL(for: self.selectedProviderID)
+            let key = self.selectedProviderID
+            self.availableModels = self.availableModelsByProvider[key] ?? ModelRepository.shared.defaultModels(for: key)
         } else {
             self.availableModels = ModelRepository.shared.defaultModels(for: self.providerKey(for: self.selectedProviderID))
         }
@@ -224,7 +227,10 @@ struct AISettingsView: View {
         self.updateCurrentProvider()
 
         // Restore selected model using the correct currentProvider
-        if let sel = selectedModelByProvider[currentProvider], availableModels.contains(sel) {
+        // If no models available, clear selection
+        if self.availableModels.isEmpty {
+            self.selectedModel = ""
+        } else if let sel = selectedModelByProvider[currentProvider], availableModels.contains(sel) {
             self.selectedModel = sel
         } else if let first = availableModels.first {
             self.selectedModel = first
@@ -439,7 +445,9 @@ struct AISettingsView: View {
     // MARK: - Helper Functions
 
     private func providerKey(for providerID: String) -> String {
-        if providerID == "openai" || providerID == "groq" { return providerID }
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
+        // Custom providers get "custom:" prefix
         return providerID.isEmpty ? self.currentProvider : "custom:\(providerID)"
     }
 
@@ -452,8 +460,6 @@ struct AISettingsView: View {
             return self.savedProviders.first(where: { $0.id == providerID })?.name ?? providerID.capitalized
         }
     }
-
-
 
     private func saveProviderAPIKeys() {
         SettingsStore.shared.providerAPIKeys = self.providerAPIKeys
@@ -1014,31 +1020,29 @@ struct AISettingsView: View {
             .background(LinearGradient(colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
             .cornerRadius(6)
 
-            Picker("", selection: self.$selectedProviderID) {
-                Text("OpenAI").tag("openai")
-                Text("Groq").tag("groq")
-                if AppleIntelligenceService.isAvailable {
-                    Text("Apple Intelligence").tag("apple-intelligence")
-                }
-                if !self.savedProviders.isEmpty {
-                    Divider()
-                    ForEach(self.savedProviders) { provider in
-                        Text(provider.name).tag(provider.id)
+            // Searchable provider picker with bounded popover
+            SearchableProviderPicker(
+                builtInProviders: self.builtInProvidersList,
+                savedProviders: self.savedProviders,
+                selectedProviderID: Binding(
+                    get: { self.selectedProviderID },
+                    set: { newValue in
+                        self.selectedProviderID = newValue
+                        self.handleProviderChange(newValue)
                     }
-                }
-            }
-            .pickerStyle(.menu).labelsHidden().frame(width: 200)
-            .onChange(of: self.selectedProviderID) { _, newValue in
-                self.handleProviderChange(newValue)
-            }
+                )
+            )
 
-            // Edit/Delete buttons for custom providers
-            if !["openai", "groq", "apple-intelligence"].contains(self.selectedProviderID) {
+            // Edit button for all providers (including built-in)
+            if self.selectedProviderID != "apple-intelligence" {
                 Button(action: { self.startEditingProvider() }) {
                     HStack(spacing: 4) { Image(systemName: "pencil"); Text("Edit") }.font(.caption)
                 }
                 .buttonStyle(CompactButtonStyle())
+            }
 
+            // Delete button only for custom providers
+            if !ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
                 Button(action: { self.deleteCurrentProvider() }) {
                     HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption).foregroundStyle(.red)
                 }
@@ -1053,37 +1057,57 @@ struct AISettingsView: View {
         }
     }
 
+    private var builtInProvidersList: [(id: String, name: String)] {
+        ModelRepository.shared.builtInProvidersList(
+            includeAppleIntelligence: true,
+            appleIntelligenceAvailable: AppleIntelligenceService.isAvailable
+        )
+    }
+
     private func handleProviderChange(_ newValue: String) {
-        switch newValue {
-        case "openai":
-            self.openAIBaseURL = "https://api.openai.com/v1"
-            self.updateCurrentProvider()
-            let key = "openai"
-            self.availableModels = self.availableModelsByProvider[key] ?? ModelRepository.shared.defaultModels(for: key)
-            self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? self.selectedModel
-        case "groq":
-            self.openAIBaseURL = "https://api.groq.com/openai/v1"
-            self.updateCurrentProvider()
-            let key = "groq"
-            self.availableModels = self.availableModelsByProvider[key] ?? ModelRepository.shared.defaultModels(for: key)
-            self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? self.selectedModel
-        case "apple-intelligence":
+        // Handle Apple Intelligence specially (no base URL)
+        if newValue == "apple-intelligence" {
             self.openAIBaseURL = ""
             self.updateCurrentProvider()
             self.availableModels = ["System Model"]
             self.selectedModel = "System Model"
-        default:
-            if let provider = savedProviders.first(where: { $0.id == newValue }) {
-                self.openAIBaseURL = provider.baseURL
-                self.updateCurrentProvider()
-                let key = self.providerKey(for: newValue)
-                self.availableModels = provider.models.isEmpty ? (self.availableModelsByProvider[key] ?? []) : provider.models
-                self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? self.selectedModel
+            return
+        }
+
+        // Check if it's a built-in provider
+        if ModelRepository.shared.isBuiltIn(newValue) {
+            self.openAIBaseURL = ModelRepository.shared.defaultBaseURL(for: newValue)
+            self.updateCurrentProvider()
+            let key = newValue
+            self.availableModels = self.availableModelsByProvider[key] ?? ModelRepository.shared.defaultModels(for: key)
+            // If no models available, clear selection; otherwise use saved or first
+            if self.availableModels.isEmpty {
+                self.selectedModel = ""
+            } else {
+                self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? ""
             }
+            return
+        }
+
+        // Handle saved/custom providers
+        if let provider = savedProviders.first(where: { $0.id == newValue }) {
+            self.openAIBaseURL = provider.baseURL
+            self.updateCurrentProvider()
+            let key = self.providerKey(for: newValue)
+            self.availableModels = provider.models.isEmpty ? (self.availableModelsByProvider[key] ?? []) : provider.models
+            self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? self.selectedModel
         }
     }
 
     private func startEditingProvider() {
+        // Handle built-in providers
+        if ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
+            self.editProviderName = ModelRepository.shared.displayName(for: self.selectedProviderID)
+            self.editProviderBaseURL = self.openAIBaseURL // Use current URL (may have been customized)
+            self.showingEditProvider = true
+            return
+        }
+        // Handle saved/custom providers
         if let provider = savedProviders.first(where: { $0.id == selectedProviderID }) {
             self.editProviderName = provider.name
             self.editProviderBaseURL = provider.baseURL
@@ -1102,7 +1126,7 @@ struct AISettingsView: View {
         SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
         SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
         self.selectedProviderID = "openai"
-        self.openAIBaseURL = "https://api.openai.com/v1"
+        self.openAIBaseURL = ModelRepository.shared.defaultBaseURL(for: "openai")
         self.updateCurrentProvider()
         self.availableModels = ModelRepository.shared.defaultModels(for: "openai")
         self.selectedModel = self.availableModels.first ?? self.selectedModel
@@ -1140,6 +1164,16 @@ struct AISettingsView: View {
         let base = self.editProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !base.isEmpty else { return }
 
+        // For built-in providers, we just update the base URL (name is not editable)
+        if ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
+            self.openAIBaseURL = base
+            self.updateCurrentProvider()
+            self.showingEditProvider = false
+            self.editProviderName = ""; self.editProviderBaseURL = ""
+            return
+        }
+
+        // For saved/custom providers, update the full provider record
         if let providerIndex = savedProviders.firstIndex(where: { $0.id == selectedProviderID }) {
             let oldProvider = self.savedProviders[providerIndex]
             let updatedProvider = SettingsStore.SavedProvider(id: oldProvider.id, name: name, baseURL: base, models: oldProvider.models)
@@ -1189,12 +1223,15 @@ struct AISettingsView: View {
                 .background(LinearGradient(colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
                 .cornerRadius(6)
 
-            Picker("", selection: self.$selectedModel) {
-                ForEach(self.availableModels, id: \.self) { model in Text(model).tag(model) }
-            }
-            .pickerStyle(.menu).labelsHidden().frame(width: 200)
+            // Searchable model picker with refresh button
+            SearchableModelPicker(
+                models: self.availableModels,
+                selectedModel: self.$selectedModel,
+                onRefresh: { await self.fetchModelsForCurrentProvider() },
+                isRefreshing: self.isFetchingModels
+            )
 
-            if !["openai", "groq"].contains(self.selectedProviderID) {
+            if !ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
                 Button(action: { self.deleteSelectedModel() }) {
                     HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption).foregroundStyle(.red)
                 }
@@ -1235,6 +1272,47 @@ struct AISettingsView: View {
         self.selectedModel = list.first ?? ""
         self.selectedModelByProvider[key] = self.selectedModel
         SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
+    }
+
+    private func fetchModelsForCurrentProvider() async {
+        self.isFetchingModels = true
+        self.fetchModelsError = nil
+        defer { self.isFetchingModels = false }
+
+        let baseURL = self.openAIBaseURL
+        let key = self.providerKey(for: self.selectedProviderID)
+        let apiKey = self.providerAPIKeys[key] ?? self.providerAPIKeys[self.selectedProviderID]
+
+        do {
+            let models = try await ModelRepository.shared.fetchModels(
+                for: self.selectedProviderID,
+                baseURL: baseURL,
+                apiKey: apiKey
+            )
+
+            // Update state on main thread
+            await MainActor.run {
+                if models.isEmpty {
+                    // Keep existing models if fetch returned empty
+                    self.fetchModelsError = "No models returned from API"
+                } else {
+                    self.availableModels = models
+                    self.availableModelsByProvider[key] = models
+                    SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
+
+                    // Select first model if current selection not in list
+                    if !models.contains(self.selectedModel) {
+                        self.selectedModel = models.first ?? ""
+                        self.selectedModelByProvider[key] = self.selectedModel
+                        SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
+                    }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.fetchModelsError = error.localizedDescription
+            }
+        }
     }
 
     private func openReasoningConfig() {

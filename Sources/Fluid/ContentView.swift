@@ -88,7 +88,7 @@ struct ContentView: View {
     @State private var aiInputText: String = ""
     @State private var aiOutputText: String = ""
     @State private var isCallingAI: Bool = false
-    @State private var openAIBaseURL: String = "https://api.openai.com/v1"
+    @State private var openAIBaseURL: String = ModelRepository.shared.defaultBaseURL(for: "openai")
 
     @State private var enableDebugLogs: Bool = SettingsStore.shared.enableDebugLogs
     @State private var pressAndHoldModeEnabled: Bool = SettingsStore.shared.pressAndHoldMode
@@ -278,10 +278,11 @@ struct ContentView: View {
             for (key, models) in self.availableModelsByProvider {
                 let lower = key.lowercased()
                 let newKey: String
-                if lower == "openai" || lower == "groq" {
+                // Use ModelRepository to correctly identify ALL built-in providers
+                if ModelRepository.shared.isBuiltIn(lower) {
                     newKey = lower
                 } else {
-                    newKey = key.hasPrefix("custom:") ? key : "custom:\\(key)"
+                    newKey = key.hasPrefix("custom:") ? key : "custom:\(key)"
                 }
                 // Keep only unique, trimmed models
                 let clean = Array(Set(models.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })).sorted()
@@ -294,8 +295,9 @@ struct ContentView: View {
             var normalizedSel: [String: String] = [:]
             for (key, model) in self.selectedModelByProvider {
                 let lower = key.lowercased()
-                let newKey: String = (lower == "openai" || lower == "groq") ? lower :
-                    (key.hasPrefix("custom:") ? key : "custom:\\(key)")
+                // Use ModelRepository to correctly identify ALL built-in providers
+                let newKey: String = ModelRepository.shared.isBuiltIn(lower) ? lower :
+                    (key.hasPrefix("custom:") ? key : "custom:\(key)")
                 if let list = normalized[newKey], list.contains(model) { normalizedSel[newKey] = model }
             }
             self.selectedModelByProvider = normalizedSel
@@ -978,12 +980,11 @@ struct ContentView: View {
     // MARK: - Provider Management Functions
 
     private func providerKey(for providerID: String) -> String {
-        if providerID == "openai" || providerID == "groq" { return providerID }
-        // Saved providers use their stable id
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
+        // Saved providers use their stable id with "custom:" prefix
         return providerID.isEmpty ? self.currentProvider : "custom:\(providerID)"
     }
-
-
 
     private func updateCurrentProvider() {
         // Map baseURL to canonical key for built-ins; else keep existing
@@ -1218,20 +1219,19 @@ struct ContentView: View {
 
         // Get provider info
         if let saved = storedSavedProviders.first(where: { $0.id == currentSelectedProviderID }) {
+            // Saved/custom provider
             derivedCurrentProvider = "custom:\(saved.id)"
             derivedBaseURL = saved.baseURL
             derivedSelectedModel = storedSelectedModelByProvider[derivedCurrentProvider] ?? saved.models.first ?? ""
-        } else if currentSelectedProviderID == "openai" {
-            derivedCurrentProvider = "openai"
-            derivedBaseURL = "https://api.openai.com/v1"
-            derivedSelectedModel = storedSelectedModelByProvider["openai"] ?? "gpt-4.1"
-        } else if currentSelectedProviderID == "groq" {
-            derivedCurrentProvider = "groq"
-            derivedBaseURL = "https://api.groq.com/openai/v1"
-            derivedSelectedModel = storedSelectedModelByProvider["groq"] ?? "openai/gpt-oss-120b"
-        } else {
+        } else if ModelRepository.shared.isBuiltIn(currentSelectedProviderID) {
+            // Built-in provider (openai, groq, cerebras, google, openrouter, ollama, lmstudio)
             derivedCurrentProvider = currentSelectedProviderID
-            derivedBaseURL = "https://api.openai.com/v1"
+            derivedBaseURL = ModelRepository.shared.defaultBaseURL(for: currentSelectedProviderID)
+            derivedSelectedModel = storedSelectedModelByProvider[currentSelectedProviderID] ?? ModelRepository.shared.defaultModels(for: currentSelectedProviderID).first ?? ""
+        } else {
+            // Unknown provider - fallback to OpenAI
+            derivedCurrentProvider = currentSelectedProviderID
+            derivedBaseURL = ModelRepository.shared.defaultBaseURL(for: "openai")
             derivedSelectedModel = storedSelectedModelByProvider[currentSelectedProviderID] ?? ""
         }
 

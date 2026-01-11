@@ -497,38 +497,34 @@ struct CommandModeView: View {
 
     private var inputArea: some View {
         HStack(spacing: 8) {
-            // Provider Selector (compact)
-            Picker("", selection: self.$settings.commandModeSelectedProviderID) {
-                Text("OpenAI").tag("openai")
-                Text("Groq").tag("groq")
+            // Provider Selector (compact, searchable)
+            SearchableProviderPicker(
+                builtInProviders: self.builtInProvidersList,
+                savedProviders: self.settings.savedProviders,
+                selectedProviderID: Binding(
+                    get: { self.settings.commandModeSelectedProviderID },
+                    set: { newValue in
+                        // Prevent selecting disabled Apple Intelligence
+                        if newValue == "apple-intelligence-disabled" || newValue == "apple-intelligence" {
+                            self.settings.commandModeSelectedProviderID = "openai"
+                        } else {
+                            self.settings.commandModeSelectedProviderID = newValue
+                        }
+                        self.updateAvailableModels()
+                    }
+                )
+            )
 
-                // Apple Intelligence - disabled for Command Mode (no tool support)
-                Text("Apple Intelligence (No tools)")
-                    .foregroundColor(.secondary)
-                    .tag("apple-intelligence-disabled")
-
-                ForEach(self.settings.savedProviders) { provider in
-                    Text(provider.name).tag(provider.id)
-                }
-            }
-            .frame(width: 110)
-            .onChange(of: self.settings.commandModeSelectedProviderID) { _, newValue in
-                // Prevent selecting disabled Apple Intelligence
-                if newValue == "apple-intelligence-disabled" || newValue == "apple-intelligence" {
-                    self.settings.commandModeSelectedProviderID = "openai"
-                }
-            }
-
-            // Model Selector (compact)
-            Picker("", selection: Binding(
-                get: { self.settings.commandModeSelectedModel ?? self.availableModels.first ?? "gpt-4.1" },
-                set: { self.settings.commandModeSelectedModel = $0 }
-            )) {
-                ForEach(self.availableModels, id: \.self) { model in
-                    Text(model).tag(model)
-                }
-            }
-            .frame(width: 130)
+            // Model Selector (compact, searchable)
+            SearchableModelPicker(
+                models: self.availableModels,
+                selectedModel: Binding(
+                    get: { self.settings.commandModeSelectedModel ?? self.availableModels.first ?? "" },
+                    set: { self.settings.commandModeSelectedModel = $0 }
+                ),
+                onRefresh: nil,
+                isRefreshing: false
+            )
 
             // Input field (flexible)
             TextField("Type a command or ask a question...", text: self.$inputText)
@@ -606,7 +602,8 @@ struct CommandModeView: View {
             return [providerID]
         }
 
-        if trimmed == "openai" || trimmed == "groq" {
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(trimmed) {
             return [trimmed]
         }
 
@@ -624,7 +621,14 @@ struct CommandModeView: View {
         return Array(Set(keys))
     }
 
-
+    private var builtInProvidersList: [(id: String, name: String)] {
+        // Apple Intelligence disabled for Command Mode (no tool support)
+        ModelRepository.shared.builtInProvidersList(
+            includeAppleIntelligence: true,
+            appleIntelligenceAvailable: false,
+            appleIntelligenceDisabledReason: "No tools"
+        )
+    }
 }
 
 // MARK: - Shimmer Effect (Cursor-style)

@@ -1124,7 +1124,8 @@ final class SettingsStore: ObservableObject {
     }
 
     private func canonicalProviderKey(for providerID: String) -> String {
-        if providerID == "openai" || providerID == "groq" {
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(providerID) {
             return providerID
         }
         if providerID.hasPrefix("custom:") {

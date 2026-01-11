@@ -148,44 +148,35 @@ struct RewriteModeView: View {
 
             // Input Area with model selectors inline
             HStack(spacing: 8) {
-                // Provider Selector (compact)
-                Picker("", selection: self.$settings.rewriteModeSelectedProviderID) {
-                    Text("OpenAI").tag("openai")
-                    Text("Groq").tag("groq")
-
-                    // Apple Intelligence
-                    if AppleIntelligenceService.isAvailable {
-                        Text("Apple Intelligence").tag("apple-intelligence")
-                    } else {
-                        Text("Apple Intelligence (Unavailable)")
-                            .foregroundColor(.secondary)
-                            .tag("apple-intelligence-disabled")
-                    }
-
-                    ForEach(self.settings.savedProviders) { provider in
-                        Text(provider.name).tag(provider.id)
-                    }
-                }
-                .frame(width: 110)
-                .onChange(of: self.settings.rewriteModeSelectedProviderID) { _, newValue in
-                    // Prevent selecting disabled Apple Intelligence
-                    if newValue == "apple-intelligence-disabled" {
-                        self.settings.rewriteModeSelectedProviderID = "openai"
-                    }
-                    self.updateAvailableModels()
-                }
+                // Provider Selector (compact, searchable)
+                SearchableProviderPicker(
+                    builtInProviders: self.builtInProvidersList,
+                    savedProviders: self.settings.savedProviders,
+                    selectedProviderID: Binding(
+                        get: { self.settings.rewriteModeSelectedProviderID },
+                        set: { newValue in
+                            // Prevent selecting disabled Apple Intelligence
+                            if newValue == "apple-intelligence-disabled" {
+                                self.settings.rewriteModeSelectedProviderID = "openai"
+                            } else {
+                                self.settings.rewriteModeSelectedProviderID = newValue
+                            }
+                            self.updateAvailableModels()
+                        }
+                    )
+                )
 
                 // Model Selector (hidden for Apple Intelligence)
                 if self.settings.rewriteModeSelectedProviderID != "apple-intelligence" {
-                    Picker("", selection: Binding(
-                        get: { self.settings.rewriteModeSelectedModel ?? self.availableModels.first ?? "gpt-4.1" },
-                        set: { self.settings.rewriteModeSelectedModel = $0 }
-                    )) {
-                        ForEach(self.availableModels, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                    .frame(width: 130)
+                    SearchableModelPicker(
+                        models: self.availableModels,
+                        selectedModel: Binding(
+                            get: { self.settings.rewriteModeSelectedModel ?? self.availableModels.first ?? "" },
+                            set: { self.settings.rewriteModeSelectedModel = $0 }
+                        ),
+                        onRefresh: nil,
+                        isRefreshing: false
+                    )
                 }
 
                 // Input field (flexible)
@@ -298,7 +289,8 @@ struct RewriteModeView: View {
             return [providerID]
         }
 
-        if trimmed == "openai" || trimmed == "groq" {
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(trimmed) {
             return [trimmed]
         }
 
@@ -313,9 +305,12 @@ struct RewriteModeView: View {
         return Array(Set(keys))
     }
 
-
-
-    // MARK: - How To Section
+    private var builtInProvidersList: [(id: String, name: String)] {
+        ModelRepository.shared.builtInProvidersList(
+            includeAppleIntelligence: true,
+            appleIntelligenceAvailable: AppleIntelligenceService.isAvailable
+        )
+    }
 
     private var shortcutDisplay: String {
         self.settings.rewriteModeHotkeyShortcut.displayString
