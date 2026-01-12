@@ -195,7 +195,6 @@ final class TranscriptionHistoryStore: ObservableObject {
         }
         objectWillChange.send()
     }
-
 }
 
 // MARK: - Stats Computation Extension

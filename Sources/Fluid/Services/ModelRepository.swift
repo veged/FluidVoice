@@ -86,6 +86,29 @@ final class ModelRepository {
         Self.builtInProviderIDs.contains(providerID)
     }
 
+    /// Returns the website URL for getting an API key or downloading the provider software.
+    /// Returns nil for providers that don't have a relevant URL (e.g., Apple Intelligence).
+    func providerWebsiteURL(for providerID: String) -> (url: String, label: String)? {
+        switch providerID {
+        case "openai":
+            return ("https://platform.openai.com/api-keys", "Get API Key")
+        case "groq":
+            return ("https://console.groq.com/keys", "Get API Key")
+        case "cerebras":
+            return ("https://cloud.cerebras.ai/platform", "Get API Key")
+        case "google":
+            return ("https://aistudio.google.com/apikey", "Get API Key")
+        case "openrouter":
+            return ("https://openrouter.ai/settings/keys", "Get API Key")
+        case "ollama":
+            return ("https://github.com/ollama/ollama/blob/main/docs/openai.md", "Setup Guide")
+        case "lmstudio":
+            return ("https://lmstudio.ai/docs/local-server", "Setup Guide")
+        default:
+            return nil
+        }
+    }
+
     /// Check if a URL represents a local endpoint (localhost, local IP)
     func isLocalEndpoint(_ urlString: String) -> Bool {
         guard let url = URL(string: urlString), let host = url.host else { return false }

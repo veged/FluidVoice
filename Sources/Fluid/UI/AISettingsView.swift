@@ -87,7 +87,7 @@ struct AISettingsView: View {
     @State private var showHelp: Bool = false
     @State private var showingSaveProvider: Bool = false
     @State private var showAPIKeyEditor: Bool = false
-    @State private var showAPIKeysGuide: Bool = false
+
     @State private var showingEditProvider: Bool = false
 
     // Provider Form State
@@ -823,8 +823,7 @@ struct AISettingsView: View {
             }
             .modifier(CardAppearAnimation(delay: 0.1, appear: self.$appear))
 
-            // API Keys Guide
-            self.apiKeysGuideCard
+
 
             // Advanced Settings Card
             self.advancedSettingsCard
@@ -972,11 +971,24 @@ struct AISettingsView: View {
             // API Key Management
             if self.selectedProviderID != "apple-intelligence" {
                 Divider()
-                Button(action: { self.handleAPIKeyButtonTapped() }) {
-                    Label("Add or Modify API Key", systemImage: "key.fill")
-                        .labelStyle(.titleAndIcon).font(.caption)
+                HStack(spacing: 8) {
+                    Button(action: { self.handleAPIKeyButtonTapped() }) {
+                        Label("Add or Modify API Key", systemImage: "key.fill")
+                            .labelStyle(.titleAndIcon).font(.caption)
+                    }
+                    .buttonStyle(GlassButtonStyle())
+
+                    // Get API Key / Download button for built-in providers
+                    if let websiteInfo = ModelRepository.shared.providerWebsiteURL(for: self.selectedProviderID),
+                       let url = URL(string: websiteInfo.url)
+                    {
+                        Button(action: { NSWorkspace.shared.open(url) }) {
+                            Label(websiteInfo.label, systemImage: websiteInfo.label.contains("Download") ? "arrow.down.circle.fill" : (websiteInfo.label.contains("Guide") ? "book.fill" : "link"))
+                                .labelStyle(.titleAndIcon).font(.caption)
+                        }
+                        .buttonStyle(GlassButtonStyle())
+                    }
                 }
-                .buttonStyle(GlassButtonStyle())
             }
 
             Divider()
@@ -1556,48 +1568,7 @@ struct AISettingsView: View {
         self.newProviderName = ""; self.newProviderBaseURL = ""; self.newProviderApiKey = ""; self.newProviderModels = ""
     }
 
-    private var apiKeysGuideCard: some View {
-        ThemedCard(style: .prominent, hoverEffect: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                Button(action: { self.showAPIKeysGuide.toggle() }) {
-                    HStack {
-                        Image(systemName: "key.fill").font(.title3).foregroundStyle(.purple)
-                        Text("Get API Keys").font(.headline).fontWeight(.semibold).foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: self.showAPIKeysGuide ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
 
-                if self.showAPIKeysGuide {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ProviderGuide(name: "OpenAI", url: "https://platform.openai.com/api-keys", baseURL: "https://api.openai.com/v1", keyPrefix: "sk-")
-                        ProviderGuide(name: "Groq", url: "https://console.groq.com/keys", baseURL: "https://api.groq.com/openai/v1", keyPrefix: "gsk_")
-                        ProviderGuide(name: "OpenRouter", url: "https://openrouter.ai/keys", baseURL: "https://openrouter.ai/api/v1", keyPrefix: "sk-or-")
-
-                        Divider()
-
-                        HStack(spacing: 8) {
-                            Image(systemName: "info.circle.fill").font(.caption).foregroundStyle(self.theme.palette.accent)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Any OpenAI compatible API endpoint is supported").font(.caption)
-                                    .fontWeight(.semibold)
-                                Text("Use '+ Add Provider' to add custom providers like Ollama, LM Studio, etc.")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(12)
-                        .background(self.theme.palette.accent.opacity(0.08))
-                        .cornerRadius(8)
-                    }
-                    .transition(.opacity)
-                }
-            }
-            .padding(14)
-        }
-        .modifier(CardAppearAnimation(delay: 0.2, appear: self.$appear))
-    }
 
     // MARK: - Advanced Settings Card
 
