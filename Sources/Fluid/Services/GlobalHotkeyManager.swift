@@ -249,6 +249,11 @@ final class GlobalHotkeyManager: NSObject {
 
         switch type {
         case .keyDown:
+            // Observe post-transcription edits (do not consume the event).
+            Task {
+                await PostTranscriptionEditTracker.shared.handleKeyDown(keyCode: keyCode, modifiers: eventModifiers)
+            }
+
             // Check Escape key first (keyCode 53) - cancels recording and closes mode views
             if keyCode == 53, eventModifiers.isEmpty {
                 var handled = false

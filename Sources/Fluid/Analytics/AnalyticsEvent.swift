@@ -12,6 +12,7 @@ enum AnalyticsEvent: String {
     // Dictation
     case transcriptionCompleted = "transcription_completed"
     case outputDelivered = "output_delivered"
+    case postTranscriptionEdit = "post_transcription_edit"
 
     // Command mode
     case commandModeRunCompleted = "command_mode_run_completed"

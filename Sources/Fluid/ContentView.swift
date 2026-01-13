@@ -602,6 +602,40 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Analytics helpers
+
+    private func currentDictationAIModelInfo() -> (provider: String?, model: String?) {
+        let providerID = SettingsStore.shared.selectedProviderID
+
+        if providerID == "apple-intelligence" {
+            return (provider: "apple-intelligence", model: "apple-intelligence")
+        }
+
+        let storedSelectedModelByProvider = SettingsStore.shared.selectedModelByProvider
+        let storedSavedProviders = SettingsStore.shared.savedProviders
+
+        let derivedProvider: String
+        let derivedModel: String
+
+        if let saved = storedSavedProviders.first(where: { $0.id == providerID }) {
+            derivedProvider = "custom:\(saved.id)"
+            derivedModel = storedSelectedModelByProvider[derivedProvider] ?? saved.models.first ?? ""
+        } else if providerID == "openai" {
+            derivedProvider = "openai"
+            derivedModel = storedSelectedModelByProvider["openai"] ?? "gpt-4.1"
+        } else if providerID == "groq" {
+            derivedProvider = "groq"
+            derivedModel = storedSelectedModelByProvider["groq"] ?? "llama-3.3-70b-versatile"
+        } else {
+            derivedProvider = providerID
+            derivedModel = storedSelectedModelByProvider[providerID] ?? ""
+        }
+
+        let providerOut = derivedProvider.isEmpty ? nil : derivedProvider
+        let modelOut = derivedModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : derivedModel
+        return (provider: providerOut, model: modelOut)
+    }
+
     // MARK: - Mode Transition Handler
 
     /// Centralized handler for sidebar mode transitions to ensure proper cleanup and state management
@@ -1519,6 +1553,19 @@ struct ContentView: View {
                     "method": AnalyticsOutputMethod.typed.rawValue,
                 ]
             )
+
+            let wordsBucket = AnalyticsBuckets.bucketWords(AnalyticsBuckets.wordCount(in: finalText))
+            let modelInfo = self.currentDictationAIModelInfo()
+            Task {
+                await PostTranscriptionEditTracker.shared.markTranscriptionCompleted(
+                    mode: AnalyticsMode.dictation.rawValue,
+                    outputMethod: AnalyticsOutputMethod.typed.rawValue,
+                    wordsBucket: wordsBucket,
+                    aiUsed: shouldUseAI,
+                    aiModel: modelInfo.model,
+                    aiProvider: modelInfo.provider
+                )
+            }
         } else if SettingsStore.shared.copyTranscriptionToClipboard == false,
                   SettingsStore.shared.saveTranscriptionHistory
         {
