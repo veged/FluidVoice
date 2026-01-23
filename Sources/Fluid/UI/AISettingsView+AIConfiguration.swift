@@ -6,309 +6,25 @@
 //
 
 import AppKit
-import Security
 import SwiftUI
 
-extension AISettingsView {
+extension AIEnhancementSettingsView {
     // MARK: - Helper Functions
 
-    func providerKey(for providerID: String) -> String {
-        // Built-in providers use their ID directly
-        if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
-        // Custom providers get "custom:" prefix (if not already present)
-        if providerID.hasPrefix("custom:") { return providerID }
-        return providerID.isEmpty ? self.currentProvider : "custom:\(providerID)"
-    }
-
-    func providerDisplayName(for providerID: String) -> String {
-        switch providerID {
-        case "openai": return "OpenAI"
-        case "groq": return "Groq"
-        case "apple-intelligence": return "Apple Intelligence"
-        default:
-            return self.savedProviders.first(where: { $0.id == providerID })?.name ?? providerID.capitalized
-        }
-    }
-
-    func saveProviderAPIKeys() {
-        SettingsStore.shared.providerAPIKeys = self.providerAPIKeys
-    }
-
-    func updateCurrentProvider() {
-        let url = self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if url.contains("openai.com") { self.currentProvider = "openai"; return }
-        if url.contains("groq.com") { self.currentProvider = "groq"; return }
-        self.currentProvider = self.providerKey(for: self.selectedProviderID)
-    }
-
-    func saveSavedProviders() {
-        SettingsStore.shared.savedProviders = self.savedProviders
-    }
-
-    func isLocalEndpoint(_ urlString: String) -> Bool {
-        return ModelRepository.shared.isLocalEndpoint(urlString)
-    }
-
-    func hasReasoningConfigForCurrentModel() -> Bool {
-        let pKey = self.providerKey(for: self.selectedProviderID)
-        if SettingsStore.shared.hasCustomReasoningConfig(forModel: self.selectedModel, provider: pKey) {
-            if let config = SettingsStore.shared.getReasoningConfig(forModel: selectedModel, provider: pKey) {
-                return config.isEnabled
-            }
-        }
-        return SettingsStore.shared.isReasoningModel(self.selectedModel)
-    }
-
-    func addNewModel() {
-        guard !self.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let modelName = self.newModelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = self.providerKey(for: self.selectedProviderID)
-
-        var list = self.availableModelsByProvider[key] ?? self.availableModels
-        if !list.contains(modelName) {
-            list.append(modelName)
-            self.availableModelsByProvider[key] = list
-            SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
-
-            if let providerIndex = savedProviders.firstIndex(where: { $0.id == selectedProviderID }) {
-                let updatedProvider = SettingsStore.SavedProvider(
-                    id: self.savedProviders[providerIndex].id,
-                    name: self.savedProviders[providerIndex].name,
-                    baseURL: self.savedProviders[providerIndex].baseURL,
-                    models: list
+    func formLabel(_ title: String) -> some View {
+        Text(title)
+            .fontWeight(.medium)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(width: AISettingsLayout.labelWidth, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)],
+                    startPoint: .leading,
+                    endPoint: .trailing
                 )
-                self.savedProviders[providerIndex] = updatedProvider
-                self.saveSavedProviders()
-            }
-
-            self.availableModels = list
-            self.selectedModel = modelName
-            self.selectedModelByProvider[key] = modelName
-            SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
-        }
-
-        self.showingAddModel = false
-        self.newModelName = ""
-    }
-
-    // MARK: - Keychain Access Helpers
-
-    private enum KeychainAccessCheckResult {
-        case granted
-        case denied(OSStatus)
-    }
-
-    func handleAPIKeyButtonTapped() {
-        switch self.probeKeychainAccess() {
-        case .granted:
-            self.newProviderApiKey = self.providerAPIKeys[self.currentProvider] ?? ""
-            self.showAPIKeyEditor = true
-        case let .denied(status):
-            self.keychainPermissionMessage = self.keychainPermissionExplanation(for: status)
-            self.showKeychainPermissionAlert = true
-        }
-    }
-
-    private func probeKeychainAccess() -> KeychainAccessCheckResult {
-        let service = "com.fluidvoice.provider-api-keys"
-        let account = "fluidApiKeys"
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-
-        var readQuery = query
-        readQuery[kSecReturnData as String] = kCFBooleanTrue
-        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        let readStatus = SecItemCopyMatching(readQuery as CFDictionary, nil)
-        switch readStatus {
-        case errSecSuccess:
-            return .granted
-        case errSecItemNotFound:
-            var addQuery = query
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            addQuery[kSecValueData as String] = (try? JSONEncoder().encode([String: String]())) ?? Data()
-
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            if addStatus == errSecSuccess {
-                SecItemDelete(query as CFDictionary)
-            }
-
-            switch addStatus {
-            case errSecSuccess, errSecDuplicateItem:
-                return .granted
-            case errSecAuthFailed, errSecInteractionNotAllowed, errSecUserCanceled:
-                return .denied(addStatus)
-            default:
-                return .denied(addStatus)
-            }
-        case errSecAuthFailed, errSecInteractionNotAllowed, errSecUserCanceled:
-            return .denied(readStatus)
-        default:
-            return .denied(readStatus)
-        }
-    }
-
-    private func keychainPermissionExplanation(for status: OSStatus) -> String {
-        var message = "FluidVoice stores provider API keys securely in your macOS Keychain but does not currently have permission to access it."
-        if let detail = SecCopyErrorMessageString(status, nil) as String? {
-            message += "\n\nmacOS reported: \(detail) (\(status))"
-        }
-        message += "\n\nClick \"Always Allow\" when the Keychain prompt appears, or open Keychain Access > login > Passwords, locate the FluidVoice entry, and grant access."
-        return message
-    }
-
-    @MainActor
-    func presentKeychainAccessAlert(message: String) {
-        let msg = message.isEmpty
-            ? "FluidVoice stores provider API keys securely in your macOS Keychain. Please grant access by choosing \"Always Allow\" when prompted."
-            : message
-
-        let alert = NSAlert()
-        alert.messageText = "Keychain Access Required"
-        alert.informativeText = msg
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open Keychain Access")
-        alert.addButton(withTitle: "OK")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.keychainaccess") {
-                NSWorkspace.shared.openApplication(
-                    at: appURL,
-                    configuration: NSWorkspace.OpenConfiguration(),
-                    completionHandler: nil
-                )
-            }
-        }
-    }
-
-    // MARK: - API Connection Testing
-
-    func testAPIConnection() async {
-        guard !self.isTestingConnection else { return }
-
-        let apiKey = self.providerAPIKeys[self.currentProvider] ?? ""
-        let baseURL = self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isLocal = self.isLocalEndpoint(baseURL)
-
-        if isLocal {
-            guard !baseURL.isEmpty else {
-                await MainActor.run {
-                    self.connectionStatus = .failed
-                    self.connectionErrorMessage = "Base URL is required"
-                }
-                return
-            }
-        } else {
-            guard !apiKey.isEmpty, !baseURL.isEmpty else {
-                await MainActor.run {
-                    self.connectionStatus = .failed
-                    self.connectionErrorMessage = "API key and base URL are required"
-                }
-                return
-            }
-        }
-
-        await MainActor.run {
-            self.isTestingConnection = true
-            self.connectionStatus = .testing
-            self.connectionErrorMessage = ""
-        }
-
-        do {
-            let endpoint = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            let fullURL: String
-            if endpoint.contains("/chat/completions") || endpoint.contains("/api/chat") || endpoint
-                .contains("/api/generate")
-            {
-                fullURL = endpoint
-            } else {
-                fullURL = endpoint + "/chat/completions"
-            }
-
-            // Debug logging to diagnose test failures
-            DebugLogger.shared.debug("testAPIConnection: provider=\(self.selectedProviderID), model=\(self.selectedModel), baseURL=\(endpoint), fullURL=\(fullURL)", source: "AISettingsView")
-
-            guard let url = URL(string: fullURL) else {
-                await MainActor.run {
-                    self.connectionStatus = .failed
-                    self.connectionErrorMessage = "Invalid Base URL format"
-                }
-                return
-            }
-
-            let provKey = self.providerKey(for: self.selectedProviderID)
-            let reasoningConfig = SettingsStore.shared.getReasoningConfig(forModel: self.selectedModel, provider: provKey)
-
-            let usesMaxCompletionTokens = SettingsStore.shared.isReasoningModel(self.selectedModel)
-
-            var requestDict: [String: Any] = [
-                "model": selectedModel,
-                "messages": [["role": "user", "content": "test"]],
-            ]
-
-            if usesMaxCompletionTokens {
-                requestDict["max_completion_tokens"] = 50
-            } else {
-                requestDict["max_tokens"] = 50
-            }
-
-            if let config = reasoningConfig, config.isEnabled {
-                if config.parameterName == "enable_thinking" {
-                    requestDict[config.parameterName] = config.parameterValue == "true"
-                } else {
-                    requestDict[config.parameterName] = config.parameterValue
-                }
-            }
-
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: requestDict, options: []) else {
-                await MainActor.run {
-                    self.connectionStatus = .failed
-                    self.connectionErrorMessage = "Failed to create test payload"
-                }
-                return
-            }
-
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if !apiKey.isEmpty {
-                request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            }
-            request.httpBody = jsonData
-            request.timeoutInterval = 12
-
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 200, httpResponse.statusCode < 300 {
-                await MainActor.run {
-                    self.connectionStatus = .success
-                    self.connectionErrorMessage = ""
-                }
-            } else if let httpResponse = response as? HTTPURLResponse {
-                await MainActor.run {
-                    self.connectionStatus = .failed
-                    self.connectionErrorMessage = "HTTP \(httpResponse.statusCode)"
-                }
-            } else {
-                await MainActor.run {
-                    self.connectionStatus = .failed
-                    self.connectionErrorMessage = "Unexpected response"
-                }
-            }
-        } catch {
-            await MainActor.run {
-                self.connectionStatus = .failed
-                self.connectionErrorMessage = error.localizedDescription
-            }
-        }
-
-        await MainActor.run {
-            self.isTestingConnection = false
-        }
+            )
+            .cornerRadius(6)
     }
 
     // MARK: - AI Configuration Card
@@ -328,13 +44,13 @@ extension AISettingsView {
                                 .fontWeight(.semibold)
                         }
                         Spacer()
-                        Toggle("", isOn: self.$enableAIProcessing)
+                        Toggle("", isOn: self.$viewModel.enableAIProcessing)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
 
                     // Streaming Toggle
-                    if self.enableAIProcessing && self.selectedProviderID != "apple-intelligence" {
+                    if self.viewModel.enableAIProcessing && self.viewModel.selectedProviderID != "apple-intelligence" {
                         HStack(spacing: 20) {
                             Toggle("Enable Streaming", isOn: Binding(
                                 get: { SettingsStore.shared.enableAIStreaming },
@@ -355,18 +71,18 @@ extension AISettingsView {
                     }
 
                     // API Key Warning
-                    if self.enableAIProcessing && self.selectedProviderID != "apple-intelligence" &&
-                        !self.isLocalEndpoint(self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) &&
-                        (self.providerAPIKeys[self.currentProvider] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    if self.viewModel.enableAIProcessing && self.viewModel.selectedProviderID != "apple-intelligence" &&
+                        !self.viewModel.isLocalEndpoint(self.viewModel.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) &&
+                        (self.viewModel.providerAPIKeys[self.viewModel.currentProvider] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     {
                         self.apiKeyWarningView
                     }
 
                     // Help Section
-                    if self.showHelp { self.helpSectionView }
+                    if self.viewModel.showHelp { self.helpSectionView }
 
                     // Provider/Model Configuration (only shown when AI Enhancement is enabled)
-                    if self.enableAIProcessing {
+                    if self.viewModel.enableAIProcessing {
                         HStack(spacing: 12) {
                             HStack(spacing: 8) {
                                 Image(systemName: "key.fill")
@@ -378,7 +94,7 @@ extension AISettingsView {
                             }
 
                             // Compatibility Badge
-                            if self.selectedProviderID == "apple-intelligence" {
+                            if self.viewModel.selectedProviderID == "apple-intelligence" {
                                 HStack(spacing: 4) {
                                     Image(systemName: "apple.logo").font(.caption2)
                                     Text("On-device").font(.caption)
@@ -400,8 +116,8 @@ extension AISettingsView {
 
                             Spacer()
 
-                            Button(action: { self.showHelp.toggle() }) {
-                                Image(systemName: self.showHelp ? "questionmark.circle.fill" : "questionmark.circle")
+                            Button(action: { self.viewModel.showHelp.toggle() }) {
+                                Image(systemName: self.viewModel.showHelp ? "questionmark.circle.fill" : "questionmark.circle")
                                     .font(.system(size: 20))
                                     .foregroundStyle(self.theme.palette.accent.opacity(0.8))
                             }
@@ -415,7 +131,7 @@ extension AISettingsView {
                 }
                 .padding(14)
             }
-            .modifier(CardAppearAnimation(delay: 0.1, appear: self.$appear))
+            .modifier(CardAppearAnimation(delay: 0.1, appear: self.$viewModel.appear))
         }
     }
 
@@ -470,47 +186,47 @@ extension AISettingsView {
         VStack(alignment: .leading, spacing: 10) {
             self.providerPickerRow
 
-            if self.showingEditProvider { self.editProviderSection }
+            if self.viewModel.showingEditProvider { self.editProviderSection }
 
-            if self.selectedProviderID == "apple-intelligence" { self.appleIntelligenceBadge }
+            if self.viewModel.selectedProviderID == "apple-intelligence" { self.appleIntelligenceBadge }
 
             // API Key Management
-            if self.selectedProviderID != "apple-intelligence" {
+            if self.viewModel.selectedProviderID != "apple-intelligence" {
                 HStack(spacing: 8) {
-                    Button(action: { self.handleAPIKeyButtonTapped() }) {
+                    Button(action: { self.viewModel.handleAPIKeyButtonTapped() }) {
                         Label("Add or Modify API Key", systemImage: "key.fill")
                             .labelStyle(.titleAndIcon).font(.caption)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(self.theme.palette.accent.opacity(0.8))
+                    .buttonStyle(CompactButtonStyle(isReady: true))
+                    .frame(minWidth: AISettingsLayout.primaryActionMinWidth, minHeight: AISettingsLayout.controlHeight)
 
                     // Get API Key / Download button for built-in providers
-                    if let websiteInfo = ModelRepository.shared.providerWebsiteURL(for: self.selectedProviderID),
+                    if let websiteInfo = ModelRepository.shared.providerWebsiteURL(for: self.viewModel.selectedProviderID),
                        let url = URL(string: websiteInfo.url)
                     {
                         Button(action: { NSWorkspace.shared.open(url) }) {
                             Label(websiteInfo.label, systemImage: websiteInfo.label.contains("Download") ? "arrow.down.circle.fill" : (websiteInfo.label.contains("Guide") ? "book.fill" : "link"))
                                 .labelStyle(.titleAndIcon).font(.caption)
                         }
-                        .buttonStyle(GlassButtonStyle())
+                        .buttonStyle(CompactButtonStyle())
+                        .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
                     }
                 }
             }
 
             // Model Row
-            if self.selectedProviderID == "apple-intelligence" {
+            if self.viewModel.selectedProviderID == "apple-intelligence" {
                 self.appleIntelligenceModelRow
             } else {
                 self.standardModelRow
-                if self.showingAddModel { self.addModelSection }
-                if self.showingReasoningConfig { self.reasoningConfigSection }
+                if self.viewModel.showingAddModel { self.addModelSection }
+                if self.viewModel.showingReasoningConfig { self.reasoningConfigSection }
             }
 
             // Connection Test
-            if self.selectedProviderID != "apple-intelligence" {
+            if self.viewModel.selectedProviderID != "apple-intelligence" {
                 self.connectionTestSection
-                if self.showingSaveProvider { self.addProviderSection }
+                if self.viewModel.showingSaveProvider { self.addProviderSection }
             }
         }
         .padding(.horizontal, 4)
@@ -518,48 +234,50 @@ extension AISettingsView {
 
     var providerPickerRow: some View {
         HStack(spacing: 12) {
-            HStack {
-                Text("Provider:").fontWeight(.medium)
-            }
-            .frame(width: 90, alignment: .leading)
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(LinearGradient(colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
-            .cornerRadius(6)
+            self.formLabel("Provider:")
 
             // Searchable provider picker with bounded popover
             SearchableProviderPicker(
                 builtInProviders: self.builtInProvidersList,
-                savedProviders: self.savedProviders,
+            savedProviders: self.viewModel.savedProviders,
                 selectedProviderID: Binding(
-                    get: { self.selectedProviderID },
+                get: { self.viewModel.selectedProviderID },
                     set: { newValue in
-                        self.selectedProviderID = newValue
-                        self.handleProviderChange(newValue)
+                    self.viewModel.selectedProviderID = newValue
+                    self.viewModel.handleProviderChange(newValue)
                     }
-                )
+                ),
+                controlWidth: AISettingsLayout.pickerWidth,
+                controlHeight: AISettingsLayout.controlHeight
             )
 
             // Edit button for all providers (including built-in)
-            if self.selectedProviderID != "apple-intelligence" {
-                Button(action: { self.startEditingProvider() }) {
+            if self.viewModel.selectedProviderID != "apple-intelligence" {
+                Button(action: { self.viewModel.startEditingProvider() }) {
                     HStack(spacing: 4) { Image(systemName: "pencil"); Text("Edit") }.font(.caption)
                 }
                 .buttonStyle(CompactButtonStyle())
+                .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
 
             // Delete button only for custom providers
-            if !ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
-                Button(action: { self.deleteCurrentProvider() }) {
-                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption).foregroundStyle(.red)
+            if !ModelRepository.shared.isBuiltIn(self.viewModel.selectedProviderID) {
+                Button(action: { self.viewModel.deleteCurrentProvider() }) {
+                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption)
                 }
-                .buttonStyle(CompactButtonStyle())
+                .buttonStyle(CompactButtonStyle(foreground: .red, borderColor: .red.opacity(0.6)))
+                .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
 
             Button("+ Add Provider") {
-                self.showingSaveProvider = true
-                self.newProviderName = ""; self.newProviderBaseURL = ""; self.newProviderApiKey = ""; self.newProviderModels = ""
+                self.viewModel.showingSaveProvider = true
+                self.viewModel.newProviderName = ""
+                self.viewModel.newProviderBaseURL = ""
+                self.viewModel.newProviderApiKey = ""
+                self.viewModel.newProviderModels = ""
             }
-            .buttonStyle(CompactButtonStyle())
+            .buttonStyle(CompactButtonStyle(isReady: true))
+            .frame(minWidth: AISettingsLayout.wideActionMinWidth, minHeight: AISettingsLayout.controlHeight)
         }
     }
 
@@ -570,93 +288,36 @@ extension AISettingsView {
         )
     }
 
-    func handleProviderChange(_ newValue: String) {
-        // Handle Apple Intelligence specially (no base URL)
-        if newValue == "apple-intelligence" {
-            self.openAIBaseURL = ""
-            self.updateCurrentProvider()
-            self.availableModels = ["System Model"]
-            self.selectedModel = "System Model"
-            return
-        }
-
-        // Check if it's a built-in provider
-        if ModelRepository.shared.isBuiltIn(newValue) {
-            self.openAIBaseURL = ModelRepository.shared.defaultBaseURL(for: newValue)
-            self.updateCurrentProvider()
-            let key = newValue
-            self.availableModels = self.availableModelsByProvider[key] ?? ModelRepository.shared.defaultModels(for: key)
-            // If no models available, clear selection; otherwise use saved or first
-            if self.availableModels.isEmpty {
-                self.selectedModel = ""
-            } else {
-                self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? ""
-            }
-            return
-        }
-
-        // Handle saved/custom providers
-        if let provider = savedProviders.first(where: { $0.id == newValue }) {
-            self.openAIBaseURL = provider.baseURL
-            self.updateCurrentProvider()
-            let key = self.providerKey(for: newValue)
-            self.availableModels = provider.models.isEmpty ? (self.availableModelsByProvider[key] ?? []) : provider.models
-            self.selectedModel = self.selectedModelByProvider[key] ?? self.availableModels.first ?? self.selectedModel
-        }
-    }
-
-    func startEditingProvider() {
-        // Handle built-in providers
-        if ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
-            self.editProviderName = ModelRepository.shared.displayName(for: self.selectedProviderID)
-            self.editProviderBaseURL = self.openAIBaseURL // Use current URL (may have been customized)
-            self.showingEditProvider = true
-            return
-        }
-        // Handle saved/custom providers
-        if let provider = savedProviders.first(where: { $0.id == selectedProviderID }) {
-            self.editProviderName = provider.name
-            self.editProviderBaseURL = provider.baseURL
-            self.showingEditProvider = true
-        }
-    }
-
-    func deleteCurrentProvider() {
-        self.savedProviders.removeAll { $0.id == self.selectedProviderID }
-        self.saveSavedProviders()
-        let key = self.providerKey(for: self.selectedProviderID)
-        self.availableModelsByProvider.removeValue(forKey: key)
-        self.selectedModelByProvider.removeValue(forKey: key)
-        self.providerAPIKeys.removeValue(forKey: key)
-        self.saveProviderAPIKeys()
-        SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
-        SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
-        // Reset to OpenAI
-        self.selectedProviderID = "openai"
-        self.openAIBaseURL = ModelRepository.shared.defaultBaseURL(for: "openai")
-        self.updateCurrentProvider()
-        // Use fetched models if available, fall back to defaults (same logic as handleProviderChange)
-        self.availableModels = self.availableModelsByProvider["openai"] ?? ModelRepository.shared.defaultModels(for: "openai")
-        self.selectedModel = self.selectedModelByProvider["openai"] ?? self.availableModels.first ?? ""
-    }
-
     var editProviderSection: some View {
         VStack(spacing: 12) {
             HStack { Text("Edit Provider").font(.headline).fontWeight(.semibold); Spacer() }
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Name").font(.caption).foregroundStyle(.secondary)
-                    TextField("Provider name", text: self.$editProviderName).textFieldStyle(.roundedBorder).frame(width: 200)
+                    TextField("Provider name", text: self.$viewModel.editProviderName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Base URL").font(.caption).foregroundStyle(.secondary)
-                    TextField("e.g., http://localhost:11434/v1", text: self.$editProviderBaseURL).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
+                    TextField("e.g., http://localhost:11434/v1", text: self.$viewModel.editProviderBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
                 }
             }
             HStack(spacing: 8) {
-                Button("Save") { self.saveEditedProvider() }.buttonStyle(GlassButtonStyle())
-                    .disabled(self.editProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.editProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Cancel") { self.showingEditProvider = false; self.editProviderName = ""; self.editProviderBaseURL = "" }.buttonStyle(GlassButtonStyle())
+                Button("Save") { self.viewModel.saveEditedProvider() }
+                    .buttonStyle(GlassButtonStyle())
+                    .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                    .disabled(self.viewModel.editProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        self.viewModel.editProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel") {
+                    self.viewModel.showingEditProvider = false
+                    self.viewModel.editProviderName = ""
+                    self.viewModel.editProviderBaseURL = ""
+                }
+                    .buttonStyle(GlassButtonStyle())
+                    .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
         }
         .padding(12)
@@ -665,33 +326,6 @@ extension AISettingsView {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1))
         .padding(.vertical, 8)
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    func saveEditedProvider() {
-        let name = self.editProviderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = self.editProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !base.isEmpty else { return }
-
-        // For built-in providers, we just update the base URL (name is not editable)
-        if ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
-            self.openAIBaseURL = base
-            self.updateCurrentProvider()
-            self.showingEditProvider = false
-            self.editProviderName = ""; self.editProviderBaseURL = ""
-            return
-        }
-
-        // For saved/custom providers, update the full provider record
-        if let providerIndex = savedProviders.firstIndex(where: { $0.id == selectedProviderID }) {
-            let oldProvider = self.savedProviders[providerIndex]
-            let updatedProvider = SettingsStore.SavedProvider(id: oldProvider.id, name: name, baseURL: base, models: oldProvider.models)
-            self.savedProviders[providerIndex] = updatedProvider
-            self.saveSavedProviders()
-            self.openAIBaseURL = base
-            self.updateCurrentProvider()
-        }
-        self.showingEditProvider = false
-        self.editProviderName = ""; self.editProviderBaseURL = ""
     }
 
     var appleIntelligenceBadge: some View {
@@ -713,11 +347,7 @@ extension AISettingsView {
 
     var appleIntelligenceModelRow: some View {
         HStack(spacing: 12) {
-            HStack { Text("Model:").fontWeight(.medium) }
-                .frame(width: 90, alignment: .leading)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(LinearGradient(colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
-                .cornerRadius(6)
+            self.formLabel("Model:")
             Text("System Language Model").foregroundStyle(.secondary).font(.system(.body))
             Spacer()
         }
@@ -725,166 +355,99 @@ extension AISettingsView {
 
     var standardModelRow: some View {
         HStack(spacing: 12) {
-            HStack { Text("Model:").fontWeight(.medium) }
-                .frame(width: 90, alignment: .leading)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(LinearGradient(colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
-                .cornerRadius(6)
+            self.formLabel("Model:")
 
             // Searchable model picker with refresh button
             SearchableModelPicker(
-                models: self.availableModels,
-                selectedModel: self.$selectedModel,
-                onRefresh: { await self.fetchModelsForCurrentProvider() },
-                isRefreshing: self.isFetchingModels
+                models: self.viewModel.availableModels,
+                selectedModel: self.$viewModel.selectedModel,
+                onRefresh: { await self.viewModel.fetchModelsForCurrentProvider() },
+                isRefreshing: self.viewModel.isFetchingModels,
+                controlWidth: AISettingsLayout.pickerWidth,
+                controlHeight: AISettingsLayout.controlHeight
             )
 
-            if !ModelRepository.shared.isBuiltIn(self.selectedProviderID) {
-                Button(action: { self.deleteSelectedModel() }) {
-                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption).foregroundStyle(.red)
+            if !ModelRepository.shared.isBuiltIn(self.viewModel.selectedProviderID) {
+                Button(action: { self.viewModel.deleteSelectedModel() }) {
+                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption)
                 }
-                .buttonStyle(CompactButtonStyle())
+                .buttonStyle(CompactButtonStyle(foreground: .red, borderColor: .red.opacity(0.6)))
+                .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
 
-            if !self.showingAddModel {
-                Button("+ Add Model") { self.showingAddModel = true; self.newModelName = "" }.buttonStyle(CompactButtonStyle())
+            if !self.viewModel.showingAddModel {
+                Button("+ Add Model") {
+                    self.viewModel.showingAddModel = true
+                    self.viewModel.newModelName = ""
+                }
+                    .buttonStyle(CompactButtonStyle(isReady: true))
+                    .frame(minWidth: AISettingsLayout.wideActionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
 
-            Button(action: { self.openReasoningConfig() }) {
+            Button(action: { self.viewModel.openReasoningConfig() }) {
                 HStack(spacing: 4) {
-                    Image(systemName: self.hasReasoningConfigForCurrentModel() ? "brain.fill" : "brain")
+                    Image(systemName: self.viewModel.hasReasoningConfigForCurrentModel() ? "brain.fill" : "brain")
                     Text("Reasoning")
                 }
                 .font(.caption)
-                .foregroundStyle(self.hasReasoningConfigForCurrentModel() ? self.theme.palette.accent : .secondary)
             }
-            .buttonStyle(CompactButtonStyle())
-        }
-    }
-
-    func deleteSelectedModel() {
-        let key = self.providerKey(for: self.selectedProviderID)
-        var list = self.availableModelsByProvider[key] ?? self.availableModels
-        list.removeAll { $0 == self.selectedModel }
-        if list.isEmpty { list = ModelRepository.shared.defaultModels(for: key) }
-        self.availableModelsByProvider[key] = list
-        SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
-
-        if let providerIndex = savedProviders.firstIndex(where: { $0.id == selectedProviderID }) {
-            let updatedProvider = SettingsStore.SavedProvider(id: self.savedProviders[providerIndex].id, name: self.savedProviders[providerIndex].name, baseURL: self.savedProviders[providerIndex].baseURL, models: list)
-            self.savedProviders[providerIndex] = updatedProvider
-            self.saveSavedProviders()
-        }
-
-        self.availableModels = list
-        self.selectedModel = list.first ?? ""
-        self.selectedModelByProvider[key] = self.selectedModel
-        SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
-    }
-
-    func fetchModelsForCurrentProvider() async {
-        self.isFetchingModels = true
-        self.fetchModelsError = nil
-        defer { self.isFetchingModels = false }
-
-        let baseURL = self.openAIBaseURL
-        let key = self.providerKey(for: self.selectedProviderID)
-        let apiKey = self.providerAPIKeys[key] ?? self.providerAPIKeys[self.selectedProviderID]
-
-        do {
-            let models = try await ModelRepository.shared.fetchModels(
-                for: self.selectedProviderID,
-                baseURL: baseURL,
-                apiKey: apiKey
-            )
-
-            // Update state on main thread
-            await MainActor.run {
-                if models.isEmpty {
-                    // Keep existing models if fetch returned empty
-                    self.fetchModelsError = "No models returned from API"
-                } else {
-                    self.availableModels = models
-                    self.availableModelsByProvider[key] = models
-                    SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
-
-                    if let providerIndex = self.savedProviders.firstIndex(where: { $0.id == self.selectedProviderID }) {
-                        let updatedProvider = SettingsStore.SavedProvider(
-                            id: self.savedProviders[providerIndex].id,
-                            name: self.savedProviders[providerIndex].name,
-                            baseURL: self.savedProviders[providerIndex].baseURL,
-                            models: models
-                        )
-                        self.savedProviders[providerIndex] = updatedProvider
-                        self.saveSavedProviders()
-                    }
-
-                    // Select first model if current selection not in list
-                    if !models.contains(self.selectedModel) {
-                        self.selectedModel = models.first ?? ""
-                        self.selectedModelByProvider[key] = self.selectedModel
-                        SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
-                    }
-                }
-            }
-        } catch {
-            await MainActor.run {
-                self.fetchModelsError = error.localizedDescription
-            }
+            .buttonStyle(CompactButtonStyle(
+                foreground: self.viewModel.hasReasoningConfigForCurrentModel() ? self.theme.palette.accent : nil,
+                borderColor: self.viewModel.hasReasoningConfigForCurrentModel() ? self.theme.palette.accent.opacity(0.6) : nil
+            ))
+            .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
         }
     }
 
     func openReasoningConfig() {
-        let pKey = self.providerKey(for: self.selectedProviderID)
-        if let config = SettingsStore.shared.getReasoningConfig(forModel: selectedModel, provider: pKey) {
-            self.editingReasoningParamName = config.parameterName
-            self.editingReasoningParamValue = config.parameterValue
-            self.editingReasoningEnabled = config.isEnabled
-        } else {
-            let modelLower = self.selectedModel.lowercased()
-            if modelLower.hasPrefix("gpt-5") || modelLower.hasPrefix("o1") || modelLower.hasPrefix("o3") || modelLower.contains("gpt-oss") {
-                self.editingReasoningParamName = "reasoning_effort"; self.editingReasoningParamValue = "low"; self.editingReasoningEnabled = true
-            } else if modelLower.contains("deepseek"), modelLower.contains("reasoner") {
-                self.editingReasoningParamName = "enable_thinking"; self.editingReasoningParamValue = "true"; self.editingReasoningEnabled = true
-            } else {
-                self.editingReasoningParamName = "reasoning_effort"; self.editingReasoningParamValue = "low"; self.editingReasoningEnabled = false
-            }
-        }
-        self.showingReasoningConfig = true
+        self.viewModel.openReasoningConfig()
     }
 
     var addModelSection: some View {
         HStack(spacing: 8) {
-            TextField("Enter model name", text: self.$newModelName)
+            TextField("Enter model name", text: self.$viewModel.newModelName)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit { if !self.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { self.addNewModel() } }
-            Button("Add") { self.addNewModel() }.buttonStyle(CompactButtonStyle())
-                .disabled(self.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            Button("Cancel") { self.showingAddModel = false; self.newModelName = "" }.buttonStyle(CompactButtonStyle())
+                .onSubmit {
+                    if !self.viewModel.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.viewModel.addNewModel()
+                    }
+                }
+            Button("Add") { self.viewModel.addNewModel() }
+                .buttonStyle(CompactButtonStyle(isReady: true))
+                .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                .disabled(self.viewModel.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel") {
+                self.viewModel.showingAddModel = false
+                self.viewModel.newModelName = ""
+            }
+                .buttonStyle(CompactButtonStyle())
+                .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
         }
-        .padding(.leading, 122)
+        .padding(.leading, AISettingsLayout.rowLeadingIndent)
     }
 
     var reasoningConfigSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "brain.head.profile").foregroundStyle(self.theme.palette.accent)
-                Text("Reasoning Config for \(self.selectedModel)").font(.caption).fontWeight(.semibold)
+                Text("Reasoning Config for \(self.viewModel.selectedModel)").font(.caption).fontWeight(.semibold)
                 Spacer()
             }
 
-            Toggle("Enable reasoning parameter", isOn: self.$editingReasoningEnabled).toggleStyle(.switch).font(.caption)
+            Toggle("Enable reasoning parameter", isOn: self.$viewModel.editingReasoningEnabled)
+                .toggleStyle(.switch)
+                .font(.caption)
 
-            if self.editingReasoningEnabled {
+            if self.viewModel.editingReasoningEnabled {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Parameter Name").font(.caption2).foregroundStyle(.secondary)
                         Picker("", selection: Binding(
                             get: {
                                 // Map current value to picker options
-                                if self.editingReasoningParamName == "reasoning_effort" {
+                                if self.viewModel.editingReasoningParamName == "reasoning_effort" {
                                     return "reasoning_effort"
-                                } else if self.editingReasoningParamName == "enable_thinking" {
+                                } else if self.viewModel.editingReasoningParamName == "enable_thinking" {
                                     return "enable_thinking"
                                 } else {
                                     return "custom"
@@ -893,11 +456,12 @@ extension AISettingsView {
                             set: { newValue in
                                 if newValue == "custom" {
                                     // Keep the current value for custom editing
-                                    if self.editingReasoningParamName == "reasoning_effort" || self.editingReasoningParamName == "enable_thinking" {
-                                        self.editingReasoningParamName = ""
+                                    if self.viewModel.editingReasoningParamName == "reasoning_effort" ||
+                                        self.viewModel.editingReasoningParamName == "enable_thinking" {
+                                        self.viewModel.editingReasoningParamName = ""
                                     }
                                 } else {
-                                    self.editingReasoningParamName = newValue
+                                    self.viewModel.editingReasoningParamName = newValue
                                 }
                             }
                         )) {
@@ -909,10 +473,11 @@ extension AISettingsView {
                     }
 
                     // Show TextField for custom parameter name
-                    if self.editingReasoningParamName != "reasoning_effort" && self.editingReasoningParamName != "enable_thinking" {
+                    if self.viewModel.editingReasoningParamName != "reasoning_effort" &&
+                        self.viewModel.editingReasoningParamName != "enable_thinking" {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Custom Name").font(.caption2).foregroundStyle(.secondary)
-                            TextField("e.g., thinking_budget", text: self.$editingReasoningParamName)
+                            TextField("e.g., thinking_budget", text: self.$viewModel.editingReasoningParamName)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 150)
                         }
@@ -920,19 +485,19 @@ extension AISettingsView {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Value").font(.caption2).foregroundStyle(.secondary)
-                        if self.editingReasoningParamName == "reasoning_effort" {
-                            Picker("", selection: self.$editingReasoningParamValue) {
+                        if self.viewModel.editingReasoningParamName == "reasoning_effort" {
+                            Picker("", selection: self.$viewModel.editingReasoningParamValue) {
                                 Text("none").tag("none"); Text("minimal").tag("minimal"); Text("low").tag("low"); Text("medium").tag("medium"); Text("high").tag("high")
                             }
                             .pickerStyle(.menu).labelsHidden().frame(width: 100)
-                        } else if self.editingReasoningParamName == "enable_thinking" {
-                            Picker("", selection: self.$editingReasoningParamValue) {
+                        } else if self.viewModel.editingReasoningParamName == "enable_thinking" {
+                            Picker("", selection: self.$viewModel.editingReasoningParamValue) {
                                 Text("true").tag("true"); Text("false").tag("false")
                             }
                             .pickerStyle(.menu).labelsHidden().frame(width: 100)
                         } else {
                             // Free-form value for custom parameters
-                            TextField("value", text: self.$editingReasoningParamValue)
+                            TextField("value", text: self.$viewModel.editingReasoningParamValue)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 100)
                         }
@@ -941,57 +506,59 @@ extension AISettingsView {
             }
 
             HStack(spacing: 8) {
-                Button("Save") { self.saveReasoningConfig() }.buttonStyle(GlassButtonStyle())
-                Button("Cancel") { self.showingReasoningConfig = false }.buttonStyle(CompactButtonStyle())
+                Button("Save") { self.saveReasoningConfig() }
+                    .buttonStyle(GlassButtonStyle())
+                    .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                Button("Cancel") { self.viewModel.showingReasoningConfig = false }
+                    .buttonStyle(CompactButtonStyle())
+                    .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8).fill(self.theme.palette.accent.opacity(0.08)).overlay(RoundedRectangle(cornerRadius: 8).stroke(self.theme.palette.accent.opacity(0.2), lineWidth: 1)))
-        .padding(.leading, 122)
+        .padding(.leading, AISettingsLayout.rowLeadingIndent)
         .transition(.opacity)
     }
 
     func saveReasoningConfig() {
-        let pKey = self.providerKey(for: self.selectedProviderID)
-        if self.editingReasoningEnabled {
-            let config = SettingsStore.ModelReasoningConfig(parameterName: self.editingReasoningParamName, parameterValue: self.editingReasoningParamValue, isEnabled: true)
-            SettingsStore.shared.setReasoningConfig(config, forModel: self.selectedModel, provider: pKey)
-        } else {
-            let config = SettingsStore.ModelReasoningConfig(parameterName: "", parameterValue: "", isEnabled: false)
-            SettingsStore.shared.setReasoningConfig(config, forModel: self.selectedModel, provider: pKey)
-        }
-        self.showingReasoningConfig = false
+        self.viewModel.saveReasoningConfig()
     }
 
     var connectionTestSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Button(action: { Task { await self.testAPIConnection() } }) {
-                    Text(self.isTestingConnection ? "Verifying..." : "Verify Connection").font(.caption).fontWeight(.semibold)
+                Button(action: { Task { await self.viewModel.testAPIConnection() } }) {
+                    Text(self.viewModel.isTestingConnection ? "Verifying..." : "Verify Connection")
+                        .font(.caption)
+                        .fontWeight(.semibold)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(self.theme.palette.accent.opacity(0.8))
-                .disabled(self.isTestingConnection || (!self.isLocalEndpoint(self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) && (self.providerAPIKeys[self.currentProvider] ?? "").isEmpty))
+                .buttonStyle(CompactButtonStyle(isReady: true))
+                .frame(minWidth: AISettingsLayout.primaryActionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                .disabled(self.viewModel.isTestingConnection ||
+                    (!self.viewModel.isLocalEndpoint(self.viewModel.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) &&
+                        (self.viewModel.providerAPIKeys[self.viewModel.currentProvider] ?? "").isEmpty))
             }
 
             // Connection Status Display
-            if self.connectionStatus == .success {
+            if self.viewModel.connectionStatus == .success {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.fluidGreen).font(.caption)
                     Text("Connection verified").font(.caption).foregroundStyle(Color.fluidGreen)
                 }
-            } else if self.connectionStatus == .failed {
+            } else if self.viewModel.connectionStatus == .failed {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red).font(.caption)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Connection failed").font(.caption).foregroundStyle(.red)
-                        if !self.connectionErrorMessage.isEmpty {
-                            Text(self.connectionErrorMessage).font(.caption2).foregroundStyle(.red.opacity(0.8)).lineLimit(1)
+                        if !self.viewModel.connectionErrorMessage.isEmpty {
+                            Text(self.viewModel.connectionErrorMessage)
+                                .font(.caption2)
+                                .foregroundStyle(.red.opacity(0.8))
+                                .lineLimit(1)
                         }
                     }
                 }
-            } else if self.connectionStatus == .testing {
+            } else if self.viewModel.connectionStatus == .testing {
                 HStack(spacing: 8) {
                     ProgressView().frame(width: 16, height: 16)
                     Text("Verifying...").font(.caption).foregroundStyle(self.theme.palette.accent)
@@ -1000,7 +567,7 @@ extension AISettingsView {
 
             // API Key Editor Sheet
             Color.clear.frame(height: 0)
-                .sheet(isPresented: self.$showAPIKeyEditor) {
+                .sheet(isPresented: self.$viewModel.showAPIKeyEditor) {
                     self.apiKeyEditorSheet
                 }
         }
@@ -1008,20 +575,28 @@ extension AISettingsView {
 
     var apiKeyEditorSheet: some View {
         VStack(spacing: 14) {
-            Text("Enter \(self.providerDisplayName(for: self.selectedProviderID)) API Key").font(.headline)
-            SecureField("API Key (optional for local endpoints)", text: self.$newProviderApiKey)
+            Text("Enter \(self.viewModel.providerDisplayName(for: self.viewModel.selectedProviderID)) API Key")
+                .font(.headline)
+            SecureField("API Key (optional for local endpoints)", text: self.$viewModel.newProviderApiKey)
                 .textFieldStyle(.roundedBorder).frame(width: 300)
             HStack(spacing: 12) {
-                Button("Cancel") { self.showAPIKeyEditor = false }.buttonStyle(.bordered)
+                Button("Cancel") { self.viewModel.showAPIKeyEditor = false }
+                    .buttonStyle(CompactButtonStyle())
+                    .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 Button("OK") {
-                    let trimmedKey = self.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-                    self.providerAPIKeys[self.currentProvider] = trimmedKey
-                    self.saveProviderAPIKeys()
-                    if self.connectionStatus != .unknown { self.connectionStatus = .unknown; self.connectionErrorMessage = "" }
-                    self.showAPIKeyEditor = false
+                    let trimmedKey = self.viewModel.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.viewModel.providerAPIKeys[self.viewModel.currentProvider] = trimmedKey
+                    self.viewModel.saveProviderAPIKeys()
+                    if self.viewModel.connectionStatus != .unknown {
+                        self.viewModel.connectionStatus = .unknown
+                        self.viewModel.connectionErrorMessage = ""
+                    }
+                    self.viewModel.showAPIKeyEditor = false
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!self.isLocalEndpoint(self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) && self.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(GlassButtonStyle())
+                .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                .disabled(!self.viewModel.isLocalEndpoint(self.viewModel.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) &&
+                    self.viewModel.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding()
@@ -1031,56 +606,42 @@ extension AISettingsView {
     var addProviderSection: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                TextField("Provider name", text: self.$newProviderName).textFieldStyle(.roundedBorder).frame(width: 200)
-                TextField("Base URL", text: self.$newProviderBaseURL).textFieldStyle(.roundedBorder).frame(width: 250)
+                TextField("Provider name", text: self.$viewModel.newProviderName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                TextField("Base URL", text: self.$viewModel.newProviderBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 250)
             }
             HStack(spacing: 8) {
-                SecureField("API Key (optional for local)", text: self.$newProviderApiKey).textFieldStyle(.roundedBorder).frame(width: 200)
-                TextField("Models (comma-separated)", text: self.$newProviderModels).textFieldStyle(.roundedBorder).frame(width: 250)
+                SecureField("API Key (optional for local)", text: self.$viewModel.newProviderApiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                TextField("Models (comma-separated)", text: self.$viewModel.newProviderModels)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 250)
             }
             HStack(spacing: 8) {
                 Button("Save Provider") { self.saveNewProvider() }
                     .buttonStyle(GlassButtonStyle())
-                    .disabled(self.newProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.newProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                    .disabled(self.viewModel.newProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        self.viewModel.newProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Cancel") {
-                    self.showingSaveProvider = false; self.newProviderName = ""; self.newProviderBaseURL = ""; self
-                        .newProviderApiKey = ""; self.newProviderModels = ""
+                    self.viewModel.showingSaveProvider = false
+                    self.viewModel.newProviderName = ""
+                    self.viewModel.newProviderBaseURL = ""
+                    self.viewModel.newProviderApiKey = ""
+                    self.viewModel.newProviderModels = ""
                 }
                 .buttonStyle(GlassButtonStyle())
+                .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
         }
         .transition(.opacity)
     }
 
     func saveNewProvider() {
-        let name = self.newProviderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = self.newProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let api = self.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !base.isEmpty else { return }
-
-        let modelsList = self.newProviderModels.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let models = modelsList.isEmpty ? ModelRepository.shared.defaultModels(for: "openai") : modelsList
-
-        let newProvider = SettingsStore.SavedProvider(name: name, baseURL: base, models: models)
-        self.savedProviders.removeAll { $0.name.lowercased() == name.lowercased() }
-        self.savedProviders.append(newProvider)
-        self.saveSavedProviders()
-
-        let key = self.providerKey(for: newProvider.id)
-        self.providerAPIKeys[key] = api
-        self.availableModelsByProvider[key] = models
-        self.selectedModelByProvider[key] = models.first ?? self.selectedModel
-        SettingsStore.shared.providerAPIKeys = self.providerAPIKeys
-        SettingsStore.shared.availableModelsByProvider = self.availableModelsByProvider
-        SettingsStore.shared.selectedModelByProvider = self.selectedModelByProvider
-
-        self.selectedProviderID = newProvider.id
-        self.openAIBaseURL = base
-        self.updateCurrentProvider()
-        self.availableModels = models
-        self.selectedModel = models.first ?? self.selectedModel
-
-        self.showingSaveProvider = false
-        self.newProviderName = ""; self.newProviderBaseURL = ""; self.newProviderApiKey = ""; self.newProviderModels = ""
+        self.viewModel.saveNewProvider()
     }
 }

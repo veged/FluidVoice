@@ -178,9 +178,16 @@ struct SecondaryButtonStyle: ButtonStyle {
 
 struct CompactButtonStyle: ButtonStyle {
     var isReady: Bool = false
+    var foreground: Color? = nil
+    var borderColor: Color? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        CompactButton(configuration: configuration, isReady: self.isReady)
+        CompactButton(
+            configuration: configuration,
+            isReady: self.isReady,
+            foreground: self.foreground,
+            borderColor: self.borderColor
+        )
     }
 
     private struct CompactButton: View {
@@ -188,32 +195,35 @@ struct CompactButtonStyle: ButtonStyle {
         @State private var isHovered = false
         let configuration: ButtonStyle.Configuration
         let isReady: Bool
+        let foreground: Color?
+        let borderColor: Color?
 
         private var shape: RoundedRectangle {
             RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
         }
 
         var body: some View {
+            let border = self.borderColor ?? (self.isReady ? self.theme.palette.accent : self.theme.palette.cardBorder)
+            let foregroundColor = self.foreground ?? self.theme.palette.primaryText
+
             self.configuration.label
                 .fontWeight(.medium)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, self.theme.metrics.spacing.md)
                 .frame(height: 34)
-                .foregroundStyle(self.theme.palette.primaryText)
+                .foregroundStyle(foregroundColor)
                 .background(self.theme.materials.card, in: self.shape)
                 .background(
                     self.shape
                         .fill(self.theme.palette.cardBackground)
                         .overlay(
                             self.shape.stroke(
-                                (self.isReady ? self.theme.palette.accent : self.theme.palette.cardBorder)
-                                    .opacity(self.isHovered ? 0.45 : 0.25),
+                                border.opacity(self.isHovered ? 0.45 : 0.25),
                                 lineWidth: 1
                             )
                         )
                 )
                 .shadow(
-                    color: (self.isReady ? self.theme.palette.accent : self.theme.palette.cardBorder)
-                        .opacity(self.isHovered ? 0.3 : 0.12),
+                    color: border.opacity(self.isHovered ? 0.3 : 0.12),
                     radius: self.isHovered ? self.theme.metrics.cardShadow.radius - 2 : 2,
                     x: 0,
                     y: self.isHovered ? self.theme.metrics.cardShadow.y - 1 : 1

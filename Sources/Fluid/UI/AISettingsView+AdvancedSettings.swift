@@ -8,7 +8,7 @@
 import AppKit
 import SwiftUI
 
-extension AISettingsView {
+extension AIEnhancementSettingsView {
     // MARK: - Advanced Settings Card
 
     var advancedSettingsCard: some View {
@@ -38,23 +38,23 @@ extension AISettingsView {
                         }
                         Spacer()
                         Button("+ Add Prompt") {
-                            self.openNewPromptEditor()
+                            self.viewModel.openNewPromptEditor()
                         }
-                        .buttonStyle(CompactButtonStyle())
-                        .frame(width: 120)
+                        .buttonStyle(CompactButtonStyle(isReady: true))
+                        .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
                     }
 
                     // Default prompt card
                     self.promptProfileCard(
                         title: "Default",
-                        subtitle: self.promptPreview(
+                        subtitle: self.viewModel.promptPreview(
                             self.settings.defaultDictationPromptOverride.map {
                                 SettingsStore.stripBaseDictationPrompt(from: $0)
                             } ?? SettingsStore.defaultDictationPromptBodyText()
                         ),
                         isSelected: self.settings.selectedDictationPromptProfile == nil,
                         onUse: { self.settings.selectedDictationPromptID = nil },
-                        onOpen: { self.openDefaultPromptViewer() }
+                        onOpen: { self.viewModel.openDefaultPromptViewer() }
                     )
 
                     // User prompt cards
@@ -68,11 +68,13 @@ extension AISettingsView {
                         ForEach(profiles) { profile in
                             self.promptProfileCard(
                                 title: profile.name.isEmpty ? "Untitled Prompt" : profile.name,
-                                subtitle: profile.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty prompt (uses Default)" : self.promptPreview(SettingsStore.stripBaseDictationPrompt(from: profile.prompt)),
+                                subtitle: profile.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? "Empty prompt (uses Default)"
+                                    : self.viewModel.promptPreview(SettingsStore.stripBaseDictationPrompt(from: profile.prompt)),
                                 isSelected: self.settings.selectedDictationPromptID == profile.id,
                                 onUse: { self.settings.selectedDictationPromptID = profile.id },
-                                onOpen: { self.openEditor(for: profile) },
-                                onDelete: { self.requestDeletePrompt(profile) }
+                                onOpen: { self.viewModel.openEditor(for: profile) },
+                                onDelete: { self.viewModel.requestDeletePrompt(profile) }
                             )
                         }
                     }
@@ -81,54 +83,10 @@ extension AISettingsView {
             }
             .padding(14)
         }
-        .modifier(CardAppearAnimation(delay: 0.3, appear: self.$appear))
-        .sheet(item: self.$promptEditorMode) { mode in
+        .modifier(CardAppearAnimation(delay: 0.3, appear: self.$viewModel.appear))
+        .sheet(item: self.$viewModel.promptEditorMode) { mode in
             self.promptEditorSheet(mode: mode)
         }
-    }
-
-    func promptPreview(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Empty prompt" }
-        let singleLine = trimmed.replacingOccurrences(of: "\n", with: " ")
-        return singleLine.count > 120 ? String(singleLine.prefix(120)) + "…" : singleLine
-    }
-
-    /// Combine a user-visible body with the hidden base prompt to ensure role/intent is always present.
-    func combinedDraftPrompt(_ text: String) -> String {
-        let body = SettingsStore.stripBaseDictationPrompt(from: text)
-        return SettingsStore.combineBasePrompt(with: body)
-    }
-
-    func requestDeletePrompt(_ profile: SettingsStore.DictationPromptProfile) {
-        self.pendingDeletePromptID = profile.id
-        self.pendingDeletePromptName = profile.name.isEmpty ? "Untitled Prompt" : profile.name
-        self.showingDeletePromptConfirm = true
-    }
-
-    func clearPendingDeletePrompt() {
-        self.showingDeletePromptConfirm = false
-        self.pendingDeletePromptID = nil
-        self.pendingDeletePromptName = ""
-    }
-
-    func deletePendingPrompt() {
-        guard let id = self.pendingDeletePromptID else {
-            self.clearPendingDeletePrompt()
-            return
-        }
-
-        // Remove profile
-        var profiles = self.settings.dictationPromptProfiles
-        profiles.removeAll { $0.id == id }
-        self.settings.dictationPromptProfiles = profiles
-
-        // If the deleted profile was active, reset to Default
-        if self.settings.selectedDictationPromptID == id {
-            self.settings.selectedDictationPromptID = nil
-        }
-
-        self.clearPendingDeletePrompt()
     }
 
     func promptProfileCard(
@@ -171,17 +129,16 @@ extension AISettingsView {
             HStack(spacing: 8) {
                 Button("Use") { onUse() }
                     .buttonStyle(CompactButtonStyle())
-                    .frame(width: 54)
+                    .frame(minWidth: AISettingsLayout.promptActionMinWidth, minHeight: AISettingsLayout.controlHeight)
                     .disabled(isSelected)
 
                 if let onDelete {
                     Button(action: { onDelete() }) {
                         HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }
                             .font(.caption)
-                            .foregroundStyle(.red)
                     }
-                    .buttonStyle(CompactButtonStyle())
-                    .frame(width: 74)
+                    .buttonStyle(CompactButtonStyle(foreground: .red, borderColor: .red.opacity(0.6)))
+                    .frame(minWidth: AISettingsLayout.promptActionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 }
             }
         }
@@ -223,7 +180,7 @@ extension AISettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 let isDefaultNameLocked = mode.isDefault
-                TextField("Prompt name", text: self.$draftPromptName)
+                TextField("Prompt name", text: self.$viewModel.draftPromptName)
                     .textFieldStyle(.roundedBorder)
                     .disabled(isDefaultNameLocked)
             }
@@ -233,11 +190,11 @@ extension AISettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 PromptTextView(
-                    text: self.$draftPromptText,
+                    text: self.$viewModel.draftPromptText,
                     isEditable: true,
                     font: NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
                 )
-                .id(self.promptEditorSessionID)
+                .id(self.viewModel.promptEditorSessionID)
                 .frame(minHeight: 180)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -247,8 +204,8 @@ extension AISettingsView {
                                 .stroke(self.theme.palette.cardBorder.opacity(0.35), lineWidth: 1)
                         )
                 )
-                .onChange(of: self.draftPromptText) { _, newValue in
-                    let combined = self.combinedDraftPrompt(newValue)
+                .onChange(of: self.viewModel.draftPromptText) { _, newValue in
+                    let combined = self.viewModel.combinedDraftPrompt(newValue)
                     self.promptTest.updateDraftPromptText(combined)
                 }
             }
@@ -265,14 +222,14 @@ extension AISettingsView {
                     Spacer()
                 }
 
-                let hotkeyDisplay = SettingsStore.shared.hotkeyShortcut.displayString
-                let canTest = self.isAIPostProcessingConfiguredForDictation()
+                let hotkeyDisplay = self.settings.hotkeyShortcut.displayString
+                let canTest = self.viewModel.isAIPostProcessingConfiguredForDictation()
 
                 Toggle(isOn: Binding(
                     get: { self.promptTest.isActive },
                     set: { enabled in
                         if enabled {
-                            let combined = self.combinedDraftPrompt(self.draftPromptText)
+                            let combined = self.viewModel.combinedDraftPrompt(self.viewModel.draftPromptText)
                             self.promptTest.activate(draftPromptText: combined)
                         } else {
                             self.promptTest.deactivate()
@@ -367,15 +324,17 @@ extension AISettingsView {
 
             HStack(spacing: 10) {
                 Button(mode.isDefault ? "Close" : "Cancel") {
-                    self.closePromptEditor()
+                    self.viewModel.closePromptEditor()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(CompactButtonStyle())
+                .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
 
                 Button("Save") {
-                    self.savePromptEditor(mode: mode)
+                    self.viewModel.savePromptEditor(mode: mode)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!mode.isDefault && self.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(GlassButtonStyle())
+                .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
+                .disabled(!mode.isDefault && self.viewModel.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding()
@@ -386,72 +345,28 @@ extension AISettingsView {
     }
 
     func openDefaultPromptViewer() {
-        self.draftPromptName = "Default"
-        if let override = self.settings.defaultDictationPromptOverride {
-            self.draftPromptText = SettingsStore.stripBaseDictationPrompt(from: override)
-        } else {
-            self.draftPromptText = SettingsStore.defaultDictationPromptBodyText()
-        }
-        self.promptEditorSessionID = UUID()
-        self.promptEditorMode = .defaultPrompt
+        self.viewModel.openDefaultPromptViewer()
     }
 
     func openNewPromptEditor() {
-        self.draftPromptName = "New Prompt"
-        self.draftPromptText = ""
-        self.promptEditorSessionID = UUID()
-        self.promptEditorMode = .newPrompt
+        self.viewModel.openNewPromptEditor()
     }
 
     func openEditor(for profile: SettingsStore.DictationPromptProfile) {
-        self.draftPromptName = profile.name
-        self.draftPromptText = SettingsStore.stripBaseDictationPrompt(from: profile.prompt)
-        self.promptEditorSessionID = UUID()
-        self.promptEditorMode = .edit(promptID: profile.id)
+        self.viewModel.openEditor(for: profile)
     }
 
     func closePromptEditor() {
-        self.promptEditorMode = nil
-        self.draftPromptName = ""
-        self.draftPromptText = ""
-        self.promptTest.deactivate()
+        self.viewModel.closePromptEditor()
     }
 
     // MARK: - Prompt Test Gating
 
     func isAIPostProcessingConfiguredForDictation() -> Bool {
-        DictationAIPostProcessingGate.isConfigured()
+        self.viewModel.isAIPostProcessingConfiguredForDictation()
     }
 
     func savePromptEditor(mode: PromptEditorMode) {
-        // Default prompt is non-deletable; save it via the optional override (empty is allowed).
-        if mode.isDefault {
-            let body = SettingsStore.stripBaseDictationPrompt(from: self.draftPromptText)
-            self.settings.defaultDictationPromptOverride = body
-            self.closePromptEditor()
-            return
-        }
-
-        let name = self.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let promptBody = SettingsStore.stripBaseDictationPrompt(from: self.draftPromptText)
-
-        var profiles = SettingsStore.shared.dictationPromptProfiles
-        let now = Date()
-
-        if let id = mode.editingPromptID,
-           let idx = profiles.firstIndex(where: { $0.id == id })
-        {
-            var updated = profiles[idx]
-            updated.name = name
-            updated.prompt = promptBody
-            updated.updatedAt = now
-            profiles[idx] = updated
-        } else {
-            let newProfile = SettingsStore.DictationPromptProfile(name: name, prompt: promptBody, createdAt: now, updatedAt: now)
-            profiles.append(newProfile)
-        }
-
-        SettingsStore.shared.dictationPromptProfiles = profiles
-        self.closePromptEditor()
+        self.viewModel.savePromptEditor(mode: mode)
     }
 }

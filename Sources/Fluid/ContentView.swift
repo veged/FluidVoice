@@ -757,7 +757,11 @@ struct ContentView: View {
         case .welcome:
             return AnyView(self.welcomeView)
         case .aiSettings:
-            return AnyView(AISettingsView())
+            return AnyView(AISettingsView(
+                appServices: self.appServices,
+                menuBarManager: self.menuBarManager,
+                theme: self.theme
+            ))
         case .preferences:
             return AnyView(self.preferencesView)
         case .meetingTools:

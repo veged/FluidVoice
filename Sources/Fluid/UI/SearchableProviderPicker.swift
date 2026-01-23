@@ -13,6 +13,22 @@ struct SearchableProviderPicker: View {
     let builtInProviders: [(id: String, name: String)]
     let savedProviders: [SettingsStore.SavedProvider]
     @Binding var selectedProviderID: String
+    let controlWidth: CGFloat
+    let controlHeight: CGFloat?
+
+    init(
+        builtInProviders: [(id: String, name: String)],
+        savedProviders: [SettingsStore.SavedProvider],
+        selectedProviderID: Binding<String>,
+        controlWidth: CGFloat = 180,
+        controlHeight: CGFloat? = nil
+    ) {
+        self.builtInProviders = builtInProviders
+        self.savedProviders = savedProviders
+        self._selectedProviderID = selectedProviderID
+        self.controlWidth = controlWidth
+        self.controlHeight = controlHeight
+    }
 
     @State private var searchText = ""
     @State private var isShowingPopover = false
@@ -52,17 +68,28 @@ struct SearchableProviderPicker: View {
 
     var body: some View {
         Button(action: { self.isShowingPopover.toggle() }) {
-            HStack(spacing: 4) {
+            HStack(spacing: 8) {
                 Text(self.selectedProviderName)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                Spacer(minLength: 6)
                 Image(systemName: "chevron.down")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .background(
+                        Circle()
+                            .fill(self.theme.palette.cardBackground.opacity(0.7))
+                            .overlay(
+                                Circle()
+                                    .stroke(self.theme.palette.cardBorder.opacity(0.4), lineWidth: 1)
+                            )
+                    )
             }
-            .frame(width: 180, alignment: .leading)
+                .frame(width: self.controlWidth, alignment: .leading)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
+                .frame(height: self.controlHeight)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(self.theme.palette.cardBackground)

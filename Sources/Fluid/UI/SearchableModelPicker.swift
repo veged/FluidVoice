@@ -14,6 +14,24 @@ struct SearchableModelPicker: View {
     @Binding var selectedModel: String
     var onRefresh: (() async -> Void)?
     var isRefreshing: Bool = false
+    let controlWidth: CGFloat
+    let controlHeight: CGFloat?
+
+    init(
+        models: [String],
+        selectedModel: Binding<String>,
+        onRefresh: (() async -> Void)? = nil,
+        isRefreshing: Bool = false,
+        controlWidth: CGFloat = 180,
+        controlHeight: CGFloat? = nil
+    ) {
+        self.models = models
+        self._selectedModel = selectedModel
+        self.onRefresh = onRefresh
+        self.isRefreshing = isRefreshing
+        self.controlWidth = controlWidth
+        self.controlHeight = controlHeight
+    }
 
     @State private var searchText = ""
     @State private var isShowingPopover = false
@@ -29,18 +47,29 @@ struct SearchableModelPicker: View {
         HStack(spacing: 8) {
             // Model button that opens popover
             Button(action: { self.isShowingPopover.toggle() }) {
-                HStack(spacing: 4) {
+                HStack(spacing: 8) {
                     Text(self.selectedModel.isEmpty ? "Select Model" : self.selectedModel)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(self.selectedModel.isEmpty ? .secondary : .primary)
+                    Spacer(minLength: 6)
                     Image(systemName: "chevron.down")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .background(
+                            Circle()
+                                .fill(self.theme.palette.cardBackground.opacity(0.7))
+                                .overlay(
+                                    Circle()
+                                        .stroke(self.theme.palette.cardBorder.opacity(0.4), lineWidth: 1)
+                                )
+                        )
                 }
-                .frame(width: 180, alignment: .leading)
+                .frame(width: self.controlWidth, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
+                .frame(height: self.controlHeight)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(self.theme.palette.cardBackground)
@@ -135,20 +164,38 @@ struct SearchableModelPicker: View {
 
             // Refresh button
             if let onRefresh = onRefresh {
-                Button(action: {
-                    Task { await onRefresh() }
-                }) {
-                    if self.isRefreshing {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
+                if self.controlHeight == nil {
+                    Button(action: {
+                        Task { await onRefresh() }
+                    }) {
+                        if self.isRefreshing {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
                     }
+                    .buttonStyle(.borderless)
+                    .disabled(self.isRefreshing)
+                    .help("Fetch models from API")
+                } else {
+                    Button(action: {
+                        Task { await onRefresh() }
+                    }) {
+                        if self.isRefreshing {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(CompactButtonStyle())
+                    .frame(width: self.controlHeight, height: self.controlHeight)
+                    .disabled(self.isRefreshing)
+                    .help("Fetch models from API")
                 }
-                .buttonStyle(.borderless)
-                .disabled(self.isRefreshing)
-                .help("Fetch models from API")
             }
         }
     }
