@@ -19,15 +19,8 @@ struct WelcomeView: View {
     @Environment(\.theme) private var theme
 
     let accessibilityEnabled: Bool
-    let providerAPIKeys: [String: String]
-    let currentProvider: String
-    let openAIBaseURL: String
-    let availableModels: [String]
-    let selectedModel: String
-
     let stopAndProcessTranscription: () async -> Void
     let startRecording: () -> Void
-    let isLocalEndpoint: (String) -> Bool
     let openAccessibilitySettings: () -> Void
 
     private var commandModeShortcutDisplay: String {
@@ -70,7 +63,7 @@ struct WelcomeView: View {
                                         : "Download the AI model for offline voice transcription (~500MB)"),
                                 status: (self.asr.isAsrReady || self.asr.modelsExistOnDisk) ? .completed : .pending,
                                 action: {
-                                    self.selectedSidebarItem = .aiSettings
+                                    self.selectedSidebarItem = .aiEnhancements
                                 },
                                 actionButtonTitle: "Go to AI Settings",
                                 showActionButton: !(self.asr.isAsrReady || self.asr.modelsExistOnDisk)
@@ -110,30 +103,13 @@ struct WelcomeView: View {
 
                             SetupStepView(
                                 step: 4,
-                                title: {
-                                    let hasApiKey = self.providerAPIKeys[self.currentProvider]?.isEmpty == false
-                                    let isLocal = self.isLocalEndpoint(self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines))
-                                    let hasModel = self.availableModels.contains(self.selectedModel)
-                                    let isConfigured = (isLocal || hasApiKey) && hasModel
-                                    return isConfigured ? "AI Enhancement Configured" : "Set Up AI Enhancement (Optional)"
-                                }(),
-                                description: {
-                                    let hasApiKey = self.providerAPIKeys[self.currentProvider]?.isEmpty == false
-                                    let isLocal = self.isLocalEndpoint(self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines))
-                                    let hasModel = self.availableModels.contains(self.selectedModel)
-                                    let isConfigured = (isLocal || hasApiKey) && hasModel
-                                    return isConfigured
-                                        ? "AI-powered text enhancement is ready to use"
-                                        : "Configure API keys for AI-powered text enhancement"
-                                }(),
-                                status: {
-                                    let hasApiKey = self.providerAPIKeys[self.currentProvider]?.isEmpty == false
-                                    let isLocal = self.isLocalEndpoint(self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines))
-                                    let hasModel = self.availableModels.contains(self.selectedModel)
-                                    return ((isLocal || hasApiKey) && hasModel) ? .completed : .pending
-                                }(),
+                                title: self.settings.isAIConfigured ? "AI Enhancement Configured" : "Set Up AI Enhancement (Optional)",
+                                description: self.settings.isAIConfigured
+                                    ? "AI-powered text enhancement is ready to use"
+                                    : "Configure API keys for AI-powered text enhancement",
+                                status: self.settings.isAIConfigured ? .completed : .pending,
                                 action: {
-                                    self.selectedSidebarItem = .aiSettings
+                                    self.selectedSidebarItem = .aiEnhancements
                                 },
                                 actionButtonTitle: "Configure AI"
                             )
@@ -165,7 +141,7 @@ struct WelcomeView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("How to Use", systemImage: "play.fill")
                             .font(.headline)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Color.fluidGreen)
 
                         VStack(alignment: .leading, spacing: 10) {
                             self.howToStep(number: 1, title: "Start Recording", description: "Press your hotkey (default: Right Option/Alt) or click the button")
@@ -397,12 +373,12 @@ struct WelcomeView: View {
                                 .background(
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .fill(
-                                            self.asr.isRunning ? self.theme.palette.accent.opacity(0.06) : Color(nsColor: NSColor.textBackgroundColor)
+                                            self.asr.isRunning ? self.theme.palette.accent.opacity(0.06) : self.theme.palette.cardBackground
                                         )
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                                 .strokeBorder(
-                                                    self.asr.isRunning ? self.theme.palette.accent.opacity(0.4) : Color(nsColor: NSColor.separatorColor),
+                                                    self.asr.isRunning ? self.theme.palette.accent.opacity(0.4) : self.theme.palette.cardBorder.opacity(0.6),
                                                     lineWidth: self.asr.isRunning ? 2 : 1
                                                 )
                                         )
@@ -513,7 +489,7 @@ struct WelcomeView: View {
             .font(.caption.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .background(self.theme.palette.cardBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 
     private func commandModeExample(icon: String, text: String) -> some View {

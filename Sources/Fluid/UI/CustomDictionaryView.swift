@@ -94,8 +94,8 @@ struct CustomDictionaryView: View {
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(.green.opacity(0.2)))
-                            .foregroundStyle(.green)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.fluidGreen.opacity(0.2)))
+                            .foregroundStyle(Color.fluidGreen)
 
                         Spacer()
 
@@ -481,7 +481,14 @@ struct AddDictionaryEntrySheet: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(self.theme.palette.cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
+                        )
+                )
             }
 
             // Save button
@@ -624,7 +631,14 @@ struct EditDictionaryEntrySheet: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(self.theme.palette.cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
+                        )
+                )
             }
 
             // Save button

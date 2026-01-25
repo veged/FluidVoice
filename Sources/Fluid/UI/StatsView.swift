@@ -176,129 +176,123 @@ struct StatsView: View {
     // MARK: - Activity Chart Card
 
     private var activityChartCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("ACTIVITY", systemImage: "chart.bar.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Picker("", selection: self.$chartDays) {
-                    Text("7 days").tag(7)
-                    Text("30 days").tag(30)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 140)
-            }
-
-            let data = self.historyStore.dailyWordCounts(days: self.chartDays)
-            let maxWords = data.map { $0.words }.max() ?? 0
-
-            if maxWords == 0 {
-                // Empty state
+        ThemedCard(style: .standard, padding: 16, hoverEffect: false) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Spacer()
-                    VStack(spacing: 8) {
-                        Image(systemName: "chart.bar")
-                            .font(.system(size: 24))
-                            .foregroundStyle(.tertiary)
-                        Text("No activity yet")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 30)
-                    Spacer()
-                }
-            } else {
-                // Bar chart
-                HStack(alignment: .bottom, spacing: self.chartDays == 7 ? 8 : 2) {
-                    ForEach(Array(data.enumerated()), id: \.offset) { _, item in
-                        VStack(spacing: 4) {
-                            // Bar (avoid division by zero)
-                            let height = (item.words > 0 && maxWords > 0) ? CGFloat(item.words) / CGFloat(maxWords) *
-                                80 : 2
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(item.words > 0 ? self.theme.palette.accent : Color.secondary.opacity(0.2))
-                                .frame(width: self.chartDays == 7 ? 30 : 8, height: max(2, height))
-
-                            // Label (only for 7-day view)
-                            if self.chartDays == 7 {
-                                Text(self.dayLabel(item.date))
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                .frame(height: 110)
-                .frame(maxWidth: .infinity)
-
-                // Summary
-                HStack {
-                    let totalPeriod = data.reduce(0) { $0 + $1.words }
-                    let activeDays = data.filter { $0.words > 0 }.count
-
-                    Text("\(self.formatNumber(totalPeriod)) words")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.primary)
-
-                    Text("across \(activeDays) active days")
-                        .font(.system(size: 11))
+                    Label("ACTIVITY", systemImage: "chart.bar.fill")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
 
                     Spacer()
+
+                    Picker("", selection: self.$chartDays) {
+                        Text("7 days").tag(7)
+                        Text("30 days").tag(30)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 140)
+                }
+
+                let data = self.historyStore.dailyWordCounts(days: self.chartDays)
+                let maxWords = data.map { $0.words }.max() ?? 0
+
+                if maxWords == 0 {
+                    // Empty state
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "chart.bar")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.tertiary)
+                            Text("No activity yet")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 30)
+                        Spacer()
+                    }
+                } else {
+                    // Bar chart
+                    HStack(alignment: .bottom, spacing: self.chartDays == 7 ? 8 : 2) {
+                        ForEach(Array(data.enumerated()), id: \.offset) { _, item in
+                            VStack(spacing: 4) {
+                                // Bar (avoid division by zero)
+                                let height = (item.words > 0 && maxWords > 0) ? CGFloat(item.words) / CGFloat(maxWords) *
+                                    80 : 2
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(item.words > 0 ? self.theme.palette.accent : Color.secondary.opacity(0.2))
+                                    .frame(width: self.chartDays == 7 ? 30 : 8, height: max(2, height))
+
+                                // Label (only for 7-day view)
+                                if self.chartDays == 7 {
+                                    Text(self.dayLabel(item.date))
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 110)
+                    .frame(maxWidth: .infinity)
+
+                    // Summary
+                    HStack {
+                        let totalPeriod = data.reduce(0) { $0 + $1.words }
+                        let activeDays = data.filter { $0.words > 0 }.count
+
+                        Text("\(self.formatNumber(totalPeriod)) words")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+
+                        Text("across \(activeDays) active days")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
                 }
             }
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(.white.opacity(0.08), lineWidth: 1)))
     }
 
     // MARK: - Milestones Card
 
     private var milestonesCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("MILESTONES", systemImage: "flag.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        ThemedCard(style: .standard, padding: 16, hoverEffect: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("MILESTONES", systemImage: "flag.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
 
-                Spacer()
+                    Spacer()
 
-                Text("\(self.historyStore.totalMilestonesAchieved)/\(self.historyStore.totalMilestonesPossible)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(self.theme.palette.accent)
-            }
+                    Text("\(self.historyStore.totalMilestonesAchieved)/\(self.historyStore.totalMilestonesPossible)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.theme.palette.accent)
+                }
 
-            VStack(alignment: .leading, spacing: 10) {
-                // Word milestones
-                self.milestoneRow(
-                    title: "Words",
-                    milestones: self.historyStore.wordMilestones
-                )
+                VStack(alignment: .leading, spacing: 10) {
+                    // Word milestones
+                    self.milestoneRow(
+                        title: "Words",
+                        milestones: self.historyStore.wordMilestones
+                    )
 
-                // Transcription milestones
-                self.milestoneRow(
-                    title: "Transcriptions",
-                    milestones: self.historyStore.transcriptionMilestones
-                )
+                    // Transcription milestones
+                    self.milestoneRow(
+                        title: "Transcriptions",
+                        milestones: self.historyStore.transcriptionMilestones
+                    )
 
-                // Streak milestones
-                self.milestoneRow(
-                    title: "Streak",
-                    milestones: self.historyStore.streakMilestones
-                )
+                    // Streak milestones
+                    self.milestoneRow(
+                        title: "Streak",
+                        milestones: self.historyStore.streakMilestones
+                    )
+                }
             }
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(.white.opacity(0.08), lineWidth: 1)))
     }
 
     private func milestoneRow(title: String, milestones: [(target: Int, achieved: Bool, label: String)]) -> some View {
@@ -333,53 +327,50 @@ struct StatsView: View {
     // MARK: - Insights Card
 
     private var insightsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("INSIGHTS", systemImage: "lightbulb.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        ThemedCard(style: .standard, padding: 16, hoverEffect: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("INSIGHTS", systemImage: "lightbulb.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-            ], spacing: 12) {
-                // Top Apps
-                self.insightItem(
-                    icon: "app.fill",
-                    title: "Top Apps",
-                    value: self.historyStore.topAppsFormatted(limit: 3).joined(separator: ", "),
-                    fallback: "No data yet"
-                )
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12),
+                ], spacing: 12) {
+                    // Top Apps
+                    self.insightItem(
+                        icon: "app.fill",
+                        title: "Top Apps",
+                        value: self.historyStore.topAppsFormatted(limit: 3).joined(separator: ", "),
+                        fallback: "No data yet"
+                    )
 
-                // AI Enhancement Rate
-                self.insightItem(
-                    icon: "sparkles",
-                    title: "AI Enhanced",
-                    value: "\(self.historyStore.aiEnhancementRate)%",
-                    fallback: "0%"
-                )
+                    // AI Enhancement Rate
+                    self.insightItem(
+                        icon: "sparkles",
+                        title: "AI Enhanced",
+                        value: "\(self.historyStore.aiEnhancementRate)%",
+                        fallback: "0%"
+                    )
 
-                // Peak Hours
-                self.insightItem(
-                    icon: "clock.fill",
-                    title: "Peak Time",
-                    value: self.historyStore.peakHourFormatted,
-                    fallback: "N/A"
-                )
+                    // Peak Hours
+                    self.insightItem(
+                        icon: "clock.fill",
+                        title: "Peak Time",
+                        value: self.historyStore.peakHourFormatted,
+                        fallback: "N/A"
+                    )
 
-                // Avg Length
-                self.insightItem(
-                    icon: "ruler.fill",
-                    title: "Avg Length",
-                    value: "\(self.historyStore.averageWordsPerTranscription) words",
-                    fallback: "0 words"
-                )
+                    // Avg Length
+                    self.insightItem(
+                        icon: "ruler.fill",
+                        title: "Avg Length",
+                        value: "\(self.historyStore.averageWordsPerTranscription) words",
+                        fallback: "0 words"
+                    )
+                }
             }
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(.white.opacity(0.08), lineWidth: 1)))
     }
 
     private func insightItem(icon: String, title: String, value: String, fallback: String) -> some View {
@@ -410,33 +401,30 @@ struct StatsView: View {
     // MARK: - Personal Records Card
 
     private var recordsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("PERSONAL RECORDS", systemImage: "trophy.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        ThemedCard(style: .standard, padding: 16, hoverEffect: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("PERSONAL RECORDS", systemImage: "trophy.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                self.recordItem(
-                    title: "Longest Transcription",
-                    value: "\(self.historyStore.longestTranscriptionWords) words"
-                )
+                HStack(spacing: 12) {
+                    self.recordItem(
+                        title: "Longest Transcription",
+                        value: "\(self.historyStore.longestTranscriptionWords) words"
+                    )
 
-                self.recordItem(
-                    title: "Most Words in a Day",
-                    value: "\(self.formatNumber(self.historyStore.mostWordsInDay)) words"
-                )
+                    self.recordItem(
+                        title: "Most Words in a Day",
+                        value: "\(self.formatNumber(self.historyStore.mostWordsInDay)) words"
+                    )
 
-                self.recordItem(
-                    title: "Most in a Day",
-                    value: "\(self.historyStore.mostTranscriptionsInDay) transcriptions"
-                )
+                    self.recordItem(
+                        title: "Most in a Day",
+                        value: "\(self.historyStore.mostTranscriptionsInDay) transcriptions"
+                    )
+                }
             }
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(.white.opacity(0.08), lineWidth: 1)))
     }
 
     private func recordItem(title: String, value: String) -> some View {
@@ -453,7 +441,11 @@ struct StatsView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(self.theme.palette.accent.opacity(0.08))
+                .fill(self.theme.palette.cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                )
         )
     }
 
@@ -510,19 +502,16 @@ private struct StatCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(self.title, systemImage: self.icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        ThemedCard(style: .standard, padding: 16, hoverEffect: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(self.title, systemImage: self.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
 
-            self.content
+                self.content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(.white.opacity(0.08), lineWidth: 1)))
     }
 }
 

@@ -76,7 +76,7 @@ struct SetupStepView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.green, in: Capsule())
+                        .background(Color.fluidGreen, in: Capsule())
                 } else if self.showActionButton {
                     HStack(spacing: 3) {
                         Text(self.actionButtonTitle)
@@ -94,13 +94,13 @@ struct SetupStepView: View {
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(self.status == .completed
-                        ? Color.green.opacity(0.06)
+                        ? Color.fluidGreen.opacity(0.06)
                         : self.theme.palette.cardBackground.opacity(0.5))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(
                                 self.status == .completed
-                                    ? Color.green.opacity(0.25)
+                                    ? Color.fluidGreen.opacity(0.25)
                                     : self.theme.palette.cardBorder.opacity(0.2),
                                 lineWidth: 1
                             )
@@ -114,7 +114,7 @@ struct SetupStepView: View {
 
     private var statusColor: Color {
         switch self.status {
-        case .completed: return .green
+        case .completed: return Color.fluidGreen
         case .inProgress: return .blue
         case .pending: return .secondary
         }
@@ -150,74 +150,6 @@ struct InstructionStep: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-        }
-    }
-}
-
-// MARK: - Provider Guide
-
-struct ProviderGuide: View {
-    @Environment(\.theme) private var theme
-    let name: String
-    let url: String
-    let description: String?
-    let baseURL: String
-    let keyPrefix: String
-
-    init(name: String, url: String, description: String? = nil, baseURL: String, keyPrefix: String) {
-        self.name = name
-        self.url = url
-        self.description = description
-        self.baseURL = baseURL
-        self.keyPrefix = keyPrefix
-    }
-
-    var body: some View {
-        ThemedCard(hoverEffect: false) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(self.name)
-                        .font(.subheadline.weight(.semibold))
-
-                    Spacer()
-
-                    if !self.url.isEmpty {
-                        Button("Get API Key") {
-                            if let url = URL(string: url) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-
-                if let description = description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Base URL:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(self.baseURL)
-                            .font(.caption.weight(.medium))
-                            .textSelection(.enabled)
-                    }
-
-                    HStack {
-                        Text("Key Format:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(self.keyPrefix == "not-needed" ? "Not required" : "Starts with: \(self.keyPrefix)")
-                            .font(.caption.weight(.medium))
-                    }
-                }
-            }
-            .padding(12)
         }
     }
 }

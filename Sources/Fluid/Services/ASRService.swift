@@ -55,7 +55,7 @@ private actor TranscriptionExecutor {
 /// ## Usage
 /// ```swift
 /// let asrService = ASRService()
-/// asrService.start() // Begin recording
+/// await asrService.start() // Begin recording
 /// // ... speak ...
 /// let transcribedText = await asrService.stop() // Stop and get transcription
 /// ```
@@ -88,6 +88,10 @@ final class ASRService: ObservableObject {
     @Published var isDownloadingModel: Bool = false
     @Published var isLoadingModel: Bool = false // True when loading cached model into memory (not downloading)
     @Published var modelsExistOnDisk: Bool = false
+    @Published var downloadProgress: Double? = nil
+
+    private var downloadProgressTask: Task<Void, Never>?
+    private var hasCompletedFirstTranscription: Bool = false // Track if model has warmed up with first transcription
 
     // MARK: - Error Handling
 
@@ -193,6 +197,11 @@ final class ASRService: ObservableObject {
 
         self.isAsrReady = false
         self.modelsExistOnDisk = false
+        self.isLoadingModel = false
+        self.isDownloadingModel = false
+        self.downloadProgress = nil
+        self.hasCompletedFirstTranscription = false // Reset warm-up state when switching models
+        self.stopDownloadProgressMonitor()
         self.ensureReadyTask?.cancel()
         self.ensureReadyTask = nil
         self.ensureReadyProviderKey = nil
@@ -259,6 +268,10 @@ final class ASRService: ObservableObject {
     private var skipNextChunk: Bool = false
     private var previousFullTranscription: String = ""
     private let transcriptionExecutor = TranscriptionExecutor() // Serializes all CoreML access
+
+    /// Tracks whether we paused system media for this recording session.
+    /// Used to resume playback only if we were the ones who paused it.
+    private var didPauseMediaForThisSession: Bool = false
 
     private var audioLevelSubject = PassthroughSubject<CGFloat, Never>()
     var audioLevelPublisher: AnyPublisher<CGFloat, Never> { self.audioLevelSubject.eraseToAnyPublisher() }
@@ -393,7 +406,7 @@ final class ASRService: ObservableObject {
     /// ## Errors
     /// If audio session configuration fails, the method will silently fail
     /// and `isRunning` will remain `false`. Check the debug logs for details.
-    func start() {
+    func start() async {
         DebugLogger.shared.info("🎤 START() called - beginning recording session", source: "ASRService")
 
         guard self.micStatus == .authorized else {
@@ -404,6 +417,9 @@ final class ASRService: ObservableObject {
             DebugLogger.shared.warning("⚠️ START() blocked - already running", source: "ASRService")
             return
         }
+
+        // Reset media pause state for this session
+        self.didPauseMediaForThisSession = false
 
         DebugLogger.shared.debug("🧹 Clearing buffers and state", source: "ASRService")
         self.finalText.removeAll()
@@ -429,6 +445,16 @@ final class ASRService: ObservableObject {
             try self.setupEngineTap()
             DebugLogger.shared.debug("✅ Engine tap setup complete", source: "ASRService")
 
+            // Pause system media AFTER successful audio setup but BEFORE setting isRunning
+            // This ensures we only pause media when we know recording will succeed
+            if SettingsStore.shared.pauseMediaDuringTranscription {
+                let didPause = await MediaPlaybackService.shared.pauseIfPlaying()
+                self.didPauseMediaForThisSession = didPause
+                if didPause {
+                    DebugLogger.shared.info("🎵 Paused system media for transcription", source: "ASRService")
+                }
+            }
+
             self.isRunning = true
             DebugLogger.shared.info("✅ isRunning set to TRUE", source: "ASRService")
 
@@ -440,11 +466,24 @@ final class ASRService: ObservableObject {
                 DebugLogger.shared.debug("ℹ️ No device to monitor", source: "ASRService")
             }
 
-            DebugLogger.shared.debug("📡 Starting streaming transcription...", source: "ASRService")
-            self.startStreamingTranscription()
+            // Only start streaming for models that support it (large Whisper models are too slow)
+            let model = SettingsStore.shared.selectedSpeechModel
+            if model.supportsStreaming {
+                DebugLogger.shared.debug("📡 Starting streaming transcription...", source: "ASRService")
+                self.startStreamingTranscription()
+            } else {
+                DebugLogger.shared.debug("⏸️ Skipping streaming - model '\(model.displayName)' does not support real-time chunk processing", source: "ASRService")
+            }
             DebugLogger.shared.info("✅ START() completed successfully", source: "ASRService")
         } catch {
             DebugLogger.shared.error("Failed to start ASR session: \(error)", source: "ASRService")
+
+            // Resume media if we paused it before the failure
+            if self.didPauseMediaForThisSession {
+                await MediaPlaybackService.shared.resumeIfWePaused(true)
+                self.didPauseMediaForThisSession = false
+                DebugLogger.shared.info("🎵 Resumed system media after start failure", source: "ASRService")
+            }
 
             // Provide user-friendly error feedback
             let errorMessage: String
@@ -507,6 +546,10 @@ final class ASRService: ObservableObject {
             return ""
         }
 
+        // Capture media pause state before we reset it, for resuming at the end
+        let shouldResumeMedia = SettingsStore.shared.pauseMediaDuringTranscription && self.didPauseMediaForThisSession
+        self.didPauseMediaForThisSession = false // Reset for next session
+
         DebugLogger.shared.debug("📍 Preparing final transcription", source: "ASRService")
 
         // CRITICAL: Set isRunning to false FIRST to signal any in-flight chunks to abort early
@@ -552,6 +595,21 @@ final class ASRService: ObservableObject {
         let pcm = self.audioBuffer.getAll()
         self.audioBuffer.clear()
 
+        // Avoid whisper.cpp assertions by skipping too-short audio buffers
+        let minSamples = 16_000
+        guard pcm.count >= minSamples else {
+            DebugLogger.shared.debug(
+                "stop(): insufficient audio for transcription (\(pcm.count)/\(minSamples) samples)",
+                source: "ASRService"
+            )
+            // Resume media playback if we paused it
+            if shouldResumeMedia {
+                await MediaPlaybackService.shared.resumeIfWePaused(true)
+                DebugLogger.shared.info("🎵 Resumed system media after insufficient audio", source: "ASRService")
+            }
+            return ""
+        }
+
         do {
             DebugLogger.shared.debug("🔍 Calling ensureAsrReady()...", source: "ASRService")
             try await self.ensureAsrReady()
@@ -559,6 +617,11 @@ final class ASRService: ObservableObject {
 
             guard self.transcriptionProvider.isReady else {
                 DebugLogger.shared.error("Transcription provider is not ready", source: "ASRService")
+                // Resume media playback if we paused it
+                if shouldResumeMedia {
+                    await MediaPlaybackService.shared.resumeIfWePaused(true)
+                    DebugLogger.shared.info("🎵 Resumed system media after provider not ready", source: "ASRService")
+                }
                 return ""
             }
 
@@ -577,9 +640,26 @@ final class ASRService: ObservableObject {
                 "Transcription completed: '\(result.text)' (confidence: \(result.confidence))",
                 source: "ASRService"
             )
+
+            // Mark first transcription as complete to clear loading state
+            if !self.hasCompletedFirstTranscription {
+                self.hasCompletedFirstTranscription = true
+                DispatchQueue.main.async {
+                    self.isLoadingModel = false
+                    DebugLogger.shared.info("✅ Model warmed up - first transcription completed", source: "ASRService")
+                }
+            }
+
             // Do not update self.finalText here to avoid instant binding insert in playground
             let cleanedText = ASRService.applyCustomDictionary(ASRService.removeFillerWords(result.text))
             DebugLogger.shared.debug("After post-processing: '\(cleanedText)'", source: "ASRService")
+
+            // Resume media playback if we paused it
+            if shouldResumeMedia {
+                await MediaPlaybackService.shared.resumeIfWePaused(true)
+                DebugLogger.shared.info("🎵 Resumed system media after transcription", source: "ASRService")
+            }
+
             return cleanedText
         } catch {
             DebugLogger.shared.error("ASR transcription failed: \(error)", source: "ASRService")
@@ -588,10 +668,26 @@ final class ASRService: ObservableObject {
             DebugLogger.shared.error("Error domain: \(nsError.domain), code: \(nsError.code)", source: "ASRService")
             DebugLogger.shared.error("Error userInfo: \(nsError.userInfo)", source: "ASRService")
 
+            // Clear loading state if this was the first transcription attempt
+            // This ensures the UI doesn't show a perpetual loading state on error
+            if !self.hasCompletedFirstTranscription {
+                self.hasCompletedFirstTranscription = true
+                DispatchQueue.main.async {
+                    self.isLoadingModel = false
+                    DebugLogger.shared.info("⚠️ First transcription failed - clearing loading state", source: "ASRService")
+                }
+            }
+
             // Note: We intentionally do NOT show an error popup here.
             // Common errors like "audio too short" are expected during normal use
             // (e.g., accidental hotkey press) and would disrupt the user's workflow.
             // Errors are logged for debugging purposes.
+
+            // Resume media playback if we paused it
+            if shouldResumeMedia {
+                await MediaPlaybackService.shared.resumeIfWePaused(true)
+                DebugLogger.shared.info("🎵 Resumed system media after transcription failure", source: "ASRService")
+            }
 
             return ""
         }
@@ -599,6 +695,10 @@ final class ASRService: ObservableObject {
 
     func stopWithoutTranscription() async {
         guard self.isRunning else { return }
+
+        // Capture media pause state before we reset it, for resuming at the end
+        let shouldResumeMedia = SettingsStore.shared.pauseMediaDuringTranscription && self.didPauseMediaForThisSession
+        self.didPauseMediaForThisSession = false // Reset for next session
 
         DebugLogger.shared.info("🛑 Stopping recording - releasing audio devices", source: "ASRService")
 
@@ -631,6 +731,12 @@ final class ASRService: ObservableObject {
         self.lastProcessedSampleCount = 0
         self.isProcessingChunk = false
         self.skipNextChunk = false
+
+        // Resume media playback if we paused it
+        if shouldResumeMedia {
+            await MediaPlaybackService.shared.resumeIfWePaused(true)
+            DebugLogger.shared.info("🎵 Resumed system media after stopping without transcription", source: "ASRService")
+        }
     }
 
     private func configureSession() throws {
@@ -1556,10 +1662,14 @@ final class ASRService: ObservableObject {
                 if modelsAlreadyCached {
                     self.isLoadingModel = true
                     self.isDownloadingModel = false
+                    self.downloadProgress = nil
+                    self.stopDownloadProgressMonitor()
                     DebugLogger.shared.info("📦 LOADING cached model into memory...", source: "ASRService")
                 } else {
                     self.isDownloadingModel = true
                     self.isLoadingModel = false
+                    self.downloadProgress = nil
+                    self.startParakeetDownloadProgressMonitor()
                     DebugLogger.shared.info("⬇️ DOWNLOADING model...", source: "ASRService")
                 }
             }
@@ -1567,13 +1677,26 @@ final class ASRService: ObservableObject {
             // Use the transcription provider to prepare models
             let downloadStartTime = Date()
             DebugLogger.shared.info("Calling transcriptionProvider.prepare()...", source: "ASRService")
-            try await provider.prepare(progressHandler: nil)
+            try await provider.prepare(progressHandler: { [weak self] progress in
+                DispatchQueue.main.async {
+                    let clamped = max(0.0, min(1.0, progress))
+                    self?.downloadProgress = clamped
+                }
+            })
             let downloadDuration = Date().timeIntervalSince(downloadStartTime)
             DebugLogger.shared.info("✓ Provider preparation completed in \(String(format: "%.1f", downloadDuration)) seconds", source: "ASRService")
 
             DispatchQueue.main.async {
                 self.isDownloadingModel = false
-                self.isLoadingModel = false
+                // Keep isLoadingModel true until first transcription completes (for large models that need warm-up)
+                if !self.hasCompletedFirstTranscription {
+                    self.isLoadingModel = true
+                    DebugLogger.shared.info("⏳ Model loaded, waiting for first transcription to complete...", source: "ASRService")
+                } else {
+                    self.isLoadingModel = false
+                }
+                self.downloadProgress = nil
+                self.stopDownloadProgressMonitor()
                 self.modelsExistOnDisk = true
             }
 
@@ -1588,9 +1711,82 @@ final class ASRService: ObservableObject {
             DispatchQueue.main.async {
                 self.isDownloadingModel = false
                 self.isLoadingModel = false
+                self.downloadProgress = nil
+                self.stopDownloadProgressMonitor()
             }
             throw error
         }
+    }
+
+    private func startParakeetDownloadProgressMonitor() {
+        let model = SettingsStore.shared.selectedSpeechModel
+        guard model == .parakeetTDT || model == .parakeetTDTv2 else { return }
+        guard let modelDir = self.parakeetCacheDirectory(for: model) else { return }
+
+        self.stopDownloadProgressMonitor()
+        self.downloadProgress = 0.0
+
+        let estimatedBytes = self.estimatedParakeetSizeBytes(for: model)
+        self.downloadProgressTask = Task(priority: .background) { [weak self] in
+            guard let self = self else { return }
+            while !Task.isCancelled {
+                let isDownloading = await MainActor.run { self.isDownloadingModel }
+                if !isDownloading { break }
+                let size = self.directorySize(at: modelDir)
+                let pct = estimatedBytes > 0 ? min(0.99, Double(size) / Double(estimatedBytes)) : 0.0
+                await MainActor.run {
+                    self.downloadProgress = max(self.downloadProgress ?? 0.0, pct)
+                }
+                try? await Task.sleep(nanoseconds: 700_000_000)
+            }
+        }
+    }
+
+    private func stopDownloadProgressMonitor() {
+        self.downloadProgressTask?.cancel()
+        self.downloadProgressTask = nil
+    }
+
+    private func parakeetCacheDirectory(for model: SettingsStore.SpeechModel) -> URL? {
+        #if arch(arm64)
+        let baseCacheDir = AsrModels.defaultCacheDirectory().deletingLastPathComponent()
+        let folder = (model == .parakeetTDTv2) ? "parakeet-tdt-0.6b-v2-coreml" : "parakeet-tdt-0.6b-v3-coreml"
+        return baseCacheDir.appendingPathComponent(folder)
+        #else
+        return nil
+        #endif
+    }
+
+    private func estimatedParakeetSizeBytes(for model: SettingsStore.SpeechModel) -> Int64 {
+        // Approximate size for progress display only.
+        switch model {
+        case .parakeetTDT, .parakeetTDTv2:
+            return 520 * 1024 * 1024
+        default:
+            return 0
+        }
+    }
+
+    private func directorySize(at url: URL) -> Int64 {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+               values.isRegularFile == true,
+               let size = values.fileSize
+            {
+                total += Int64(size)
+            }
+        }
+        return total
     }
 
     // MARK: - Model lifecycle helpers (parity with original API)
@@ -1766,6 +1962,15 @@ final class ASRService: ObservableObject {
             )
             let rawText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let newText = ASRService.applyCustomDictionary(ASRService.removeFillerWords(rawText))
+
+            // Mark first transcription as complete to clear loading state
+            if !self.hasCompletedFirstTranscription {
+                self.hasCompletedFirstTranscription = true
+                DispatchQueue.main.async {
+                    self.isLoadingModel = false
+                    DebugLogger.shared.info("✅ Model warmed up - first streaming transcription completed", source: "ASRService")
+                }
+            }
 
             if !newText.isEmpty {
                 // Smart diff: only show truly new words

@@ -234,6 +234,7 @@ struct NotchExpandedView: View {
     let audioPublisher: AnyPublisher<CGFloat, Never>
     @ObservedObject private var contentState = NotchContentState.shared
     @ObservedObject private var settings = SettingsStore.shared
+    @Environment(\.theme) private var theme
     @State private var showPromptHoverMenu = false
     @State private var promptHoverWorkItem: DispatchWorkItem?
 
@@ -340,7 +341,7 @@ struct NotchExpandedView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color.black.opacity(0.92))
+        .background(Color.black)
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -622,6 +623,7 @@ struct NotchCommandOutputExpandedView: View {
     let onClearChat: () -> Void
 
     @ObservedObject private var contentState = NotchContentState.shared
+    @Environment(\.theme) private var theme
     @State private var inputText: String = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollProxy: ScrollViewProxy?

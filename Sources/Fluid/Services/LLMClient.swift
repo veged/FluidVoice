@@ -163,7 +163,7 @@ final class LLMClient {
         {
             endpoint = baseURL
         } else {
-            endpoint = baseURL.isEmpty ? "https://api.openai.com/v1/chat/completions" : "\(baseURL)/chat/completions"
+            endpoint = baseURL.isEmpty ? "\(ModelRepository.shared.defaultBaseURL(for: "openai"))/chat/completions" : "\(baseURL)/chat/completions"
         }
 
         guard let url = URL(string: endpoint) else {

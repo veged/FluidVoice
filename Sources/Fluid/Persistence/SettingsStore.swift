@@ -3,6 +3,10 @@ import ApplicationServices
 import Combine
 import Foundation
 import ServiceManagement
+import SwiftUI
+#if canImport(FluidAudio)
+import FluidAudio
+#endif
 
 final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
@@ -27,6 +31,7 @@ final class SettingsStore: ObservableObject {
         static let providerAPIKeys = "ProviderAPIKeys"
         static let providerAPIKeyIdentifiers = "ProviderAPIKeyIdentifiers"
         static let savedProviders = "SavedProviders"
+        static let verifiedProviderFingerprints = "VerifiedProviderFingerprints"
         static let shareAnonymousAnalytics = "ShareAnonymousAnalytics"
         static let hotkeyShortcutKey = "HotkeyShortcutKey"
         static let preferredInputDeviceUID = "PreferredInputDeviceUID"
@@ -35,6 +40,7 @@ final class SettingsStore: ObservableObject {
         static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"
         static let launchAtStartup = "LaunchAtStartup"
         static let showInDock = "ShowInDock"
+        static let accentColorOption = "AccentColorOption"
         static let pressAndHoldMode = "PressAndHoldMode"
         static let enableStreamingPreview = "EnableStreamingPreview"
         static let enableAIStreaming = "EnableAIStreaming"
@@ -89,6 +95,9 @@ final class SettingsStore: ObservableObject {
         static let overlayPosition = "OverlayPosition"
         static let overlayBottomOffset = "OverlayBottomOffset"
         static let overlaySize = "OverlaySize"
+
+        // Media Playback Control
+        static let pauseMediaDuringTranscription = "PauseMediaDuringTranscription"
 
         // Custom Dictation Prompt
         static let customDictationPrompt = "CustomDictationPrompt"
@@ -456,6 +465,44 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Check if the current AI provider is fully configured (API key/baseURL + selected model)
+    var isAIConfigured: Bool {
+        let providerID = self.selectedProviderID
+
+        // 1. Apple Intelligence is always considered configured
+        if providerID == "apple-intelligence" { return true }
+
+        // 2. Get base URL to check for local endpoints
+        var baseURL = ""
+        if let saved = self.savedProviders.first(where: { $0.id == providerID }) {
+            baseURL = saved.baseURL
+        } else {
+            baseURL = ModelRepository.shared.defaultBaseURL(for: providerID)
+        }
+
+        let isLocal = ModelRepository.shared.isLocalEndpoint(baseURL)
+
+        // 3. Check for API key and selected model
+        let key = self.canonicalProviderKey(for: providerID)
+        let hasApiKey = !(self.providerAPIKeys[key]?.isEmpty ?? true)
+
+        let selectedModel = self.selectedModelByProvider[key]
+        let hasSelectedModel = !(selectedModel?.isEmpty ?? true)
+        let hasDefaultModel = !ModelRepository.shared.defaultModels(for: providerID).isEmpty
+        let hasModel = hasSelectedModel || hasDefaultModel
+
+        return (isLocal || hasApiKey) && hasModel
+    }
+
+    /// The base URL for the currently selected AI provider
+    var activeBaseURL: String {
+        let providerID = self.selectedProviderID
+        if let saved = self.savedProviders.first(where: { $0.id == providerID }) {
+            return saved.baseURL
+        }
+        return ModelRepository.shared.defaultBaseURL(for: providerID)
+    }
+
     var hotkeyShortcut: HotkeyShortcut {
         get {
             if let data = defaults.data(forKey: Keys.hotkeyShortcutKey),
@@ -489,7 +536,7 @@ final class SettingsStore: ObservableObject {
     var enableAIStreaming: Bool {
         get {
             let value = self.defaults.object(forKey: Keys.enableAIStreaming)
-            return value as? Bool ?? false // Default to false (disabled)
+            return value as? Bool ?? true // Default to true (enabled)
         }
         set {
             objectWillChange.send()
@@ -622,6 +669,45 @@ final class SettingsStore: ObservableObject {
     }
 
     // MARK: - Preferences Settings
+
+    enum AccentColorOption: String, CaseIterable, Identifiable {
+        case cyan = "Cyan"
+        case green = "Green"
+        case blue = "Blue"
+        case purple = "Purple"
+        case orange = "Orange"
+
+        var id: String { self.rawValue }
+
+        var hex: String {
+            switch self {
+            case .cyan: return "#3AC8C6"
+            case .green: return "#22C55E"
+            case .blue: return "#3B82F6"
+            case .purple: return "#A855F7"
+            case .orange: return "#F59E0B"
+            }
+        }
+    }
+
+    var accentColorOption: AccentColorOption {
+        get {
+            guard let raw = self.defaults.string(forKey: Keys.accentColorOption),
+                  let option = AccentColorOption(rawValue: raw)
+            else {
+                return .cyan
+            }
+            return option
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue.rawValue, forKey: Keys.accentColorOption)
+        }
+    }
+
+    var accentColor: Color {
+        Color(hex: self.accentColorOption.hex) ?? Color(red: 0.227, green: 0.784, blue: 0.776)
+    }
 
     var launchAtStartup: Bool {
         get { self.defaults.bool(forKey: Keys.launchAtStartup) }
@@ -974,6 +1060,26 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Stored verification fingerprints per provider key (hash of baseURL + apiKey).
+    var verifiedProviderFingerprints: [String: String] {
+        get {
+            guard let data = self.defaults.data(forKey: Keys.verifiedProviderFingerprints),
+                  let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+            else {
+                return [:]
+            }
+            return decoded
+        }
+        set {
+            objectWillChange.send()
+            if let encoded = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(encoded, forKey: Keys.verifiedProviderFingerprints)
+            } else {
+                self.defaults.removeObject(forKey: Keys.verifiedProviderFingerprints)
+            }
+        }
+    }
+
     // MARK: - Stats Settings
 
     /// User's typing speed in words per minute (for time saved calculation)
@@ -1124,7 +1230,8 @@ final class SettingsStore: ObservableObject {
     }
 
     private func canonicalProviderKey(for providerID: String) -> String {
-        if providerID == "openai" || providerID == "groq" {
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(providerID) {
             return providerID
         }
         if providerID.hasPrefix("custom:") {
@@ -1271,6 +1378,18 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Media Playback Control
+
+    /// When enabled, automatically pauses system media playback when transcription starts.
+    /// Only resumes if FluidVoice was the one that paused it.
+    var pauseMediaDuringTranscription: Bool {
+        get { self.defaults.object(forKey: Keys.pauseMediaDuringTranscription) as? Bool ?? false }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.pauseMediaDuringTranscription)
+        }
+    }
+
     // MARK: - Custom Dictionary
 
     /// A custom dictionary entry that maps multiple misheard/alternate spellings to a correct replacement.
@@ -1345,8 +1464,8 @@ final class SettingsStore: ObservableObject {
             switch self {
             case .parakeetTDT: return "Parakeet TDT v3 (Multilingual)"
             case .parakeetTDTv2: return "Parakeet TDT v2 (English Only)"
-            case .appleSpeech: return "Apple Speech (Legacy)"
-            case .appleSpeechAnalyzer: return "Apple Speech (macOS 26+)"
+            case .appleSpeech: return "Apple ASR Legacy"
+            case .appleSpeechAnalyzer: return "Apple Speech - macOS 26+"
             case .whisperTiny: return "Whisper Tiny"
             case .whisperBase: return "Whisper Base"
             case .whisperSmall: return "Whisper Small"
@@ -1454,6 +1573,234 @@ final class SettingsStore: ObservableObject {
         /// Default model for the current architecture
         static var defaultModel: SpeechModel {
             CPUArchitecture.isAppleSilicon ? .parakeetTDT : .whisperBase
+        }
+
+        // MARK: - UI Card Metadata
+
+        /// Human-readable marketing name for the card UI
+        var humanReadableName: String {
+            switch self {
+            case .parakeetTDT: return "Blazing Fast - Multilingual"
+            case .parakeetTDTv2: return "Blazing Fast - English"
+            case .appleSpeech: return "Apple ASR Legacy"
+            case .appleSpeechAnalyzer: return "Apple Speech - macOS 26+"
+            case .whisperTiny: return "Fast & Light"
+            case .whisperBase: return "Standard Choice"
+            case .whisperSmall: return "Balanced Speed & Accuracy"
+            case .whisperMedium: return "Medium Quality"
+            case .whisperLargeTurbo: return "Higher Quality but Faster"
+            case .whisperLarge: return "Maximum Accuracy"
+            }
+        }
+
+        /// One-line description for the card UI
+        var cardDescription: String {
+            switch self {
+            case .parakeetTDT:
+                return "Fast multilingual transcription with 25 languages. Best for everyday use."
+            case .parakeetTDTv2:
+                return "Optimized for English accuracy and fastest transcription."
+            case .appleSpeech:
+                return "Built-in macOS speech recognition. No download required."
+            case .appleSpeechAnalyzer:
+                return "Advanced and modern on-device recognition for newer macOS devices."
+            case .whisperTiny:
+                return "Minimal resource usage. Best for older Macs or battery life."
+            case .whisperBase:
+                return "Good balance of speed and accuracy. Works on any Mac."
+            case .whisperSmall:
+                return "Better accuracy than Base. Moderate resource usage."
+            case .whisperMedium:
+                return "High accuracy for demanding tasks. Requires more memory."
+            case .whisperLargeTurbo:
+                return "Near-maximum accuracy with optimized speed."
+            case .whisperLarge:
+                return "Best possible accuracy. Large download and memory usage."
+            }
+        }
+
+        /// Speed rating (1-5, higher is faster)
+        var speedRating: Int {
+            switch self {
+            case .parakeetTDT: return 5
+            case .parakeetTDTv2: return 5
+            case .appleSpeech: return 4
+            case .appleSpeechAnalyzer: return 4
+            case .whisperTiny: return 4
+            case .whisperBase: return 4
+            case .whisperSmall: return 3
+            case .whisperMedium: return 2
+            case .whisperLargeTurbo: return 3
+            case .whisperLarge: return 1
+            }
+        }
+
+        /// Accuracy rating (1-5, higher is more accurate)
+        var accuracyRating: Int {
+            switch self {
+            case .parakeetTDT: return 5
+            case .parakeetTDTv2: return 5
+            case .appleSpeech: return 4
+            case .appleSpeechAnalyzer: return 4
+            case .whisperTiny: return 2
+            case .whisperBase: return 3
+            case .whisperSmall: return 4
+            case .whisperMedium: return 4
+            case .whisperLargeTurbo: return 5
+            case .whisperLarge: return 5
+            }
+        }
+
+        /// Exact speed percentage (0.0 - 1.0) for the liquid bars
+        var speedPercent: Double {
+            switch self {
+            case .parakeetTDT: return 1.0
+            case .parakeetTDTv2: return 1.0
+            case .appleSpeech: return 0.60
+            case .appleSpeechAnalyzer: return 0.85
+            case .whisperTiny: return 0.90
+            case .whisperBase: return 0.80
+            case .whisperSmall: return 0.60
+            case .whisperMedium: return 0.40
+            case .whisperLargeTurbo: return 0.65
+            case .whisperLarge: return 0.20
+            }
+        }
+
+        /// Exact accuracy percentage (0.0 - 1.0) for the liquid bars
+        var accuracyPercent: Double {
+            switch self {
+            case .parakeetTDT: return 0.95
+            case .parakeetTDTv2: return 0.98
+            case .appleSpeech: return 0.60
+            case .appleSpeechAnalyzer: return 0.80
+            case .whisperTiny: return 0.40
+            case .whisperBase: return 0.60
+            case .whisperSmall: return 0.70
+            case .whisperMedium: return 0.80
+            case .whisperLargeTurbo: return 0.95
+            case .whisperLarge: return 1.00
+            }
+        }
+
+        /// Optional badge text for the card (e.g., "FluidVoice Pick")
+        var badgeText: String? {
+            switch self {
+            case .parakeetTDT: return "FluidVoice Pick"
+            case .parakeetTDTv2: return "FluidVoice Pick"
+            case .appleSpeechAnalyzer: return "New"
+            default: return nil
+            }
+        }
+
+        /// Optimization level for Apple Silicon (for display)
+        var appleSiliconOptimized: Bool {
+            switch self {
+            case .parakeetTDT, .parakeetTDTv2, .appleSpeechAnalyzer:
+                return true
+            default:
+                return false
+            }
+        }
+
+        /// Whether this model supports real-time streaming/chunk processing.
+        /// Large Whisper models are too slow for streaming, so they only do final transcription on stop.
+        var supportsStreaming: Bool {
+            switch self {
+            case .whisperMedium, .whisperLarge, .whisperLargeTurbo:
+                return false // Too slow for real-time chunk processing
+            default:
+                return true // All other models support streaming
+            }
+        }
+
+        /// Provider category for tab grouping
+        enum Provider: String, CaseIterable {
+            case nvidia = "NVIDIA"
+            case apple = "Apple"
+            case openai = "OpenAI"
+        }
+
+        /// Which provider this model belongs to
+        var provider: Provider {
+            switch self {
+            case .parakeetTDT, .parakeetTDTv2:
+                return .nvidia
+            case .appleSpeech, .appleSpeechAnalyzer:
+                return .apple
+            case .whisperTiny, .whisperBase, .whisperSmall, .whisperMedium, .whisperLargeTurbo, .whisperLarge:
+                return .openai
+            }
+        }
+
+        /// Get models filtered by provider
+        static func models(for provider: Provider) -> [SpeechModel] {
+            self.availableModels.filter { $0.provider == provider }
+        }
+
+        /// Whether this model is built-in or already downloaded on disk
+        var isInstalled: Bool {
+            switch self {
+            case .appleSpeech, .appleSpeechAnalyzer:
+                return true
+            case .parakeetTDT:
+                // Hardcoded path check for NVIDIA v3
+                return Self.parakeetCacheDirectory(version: "parakeet-tdt-0.6b-v3-coreml")
+            case .parakeetTDTv2:
+                // Hardcoded path check for NVIDIA v2
+                return Self.parakeetCacheDirectory(version: "parakeet-tdt-0.6b-v2-coreml")
+            default:
+                // Whisper models
+                guard let whisperFile = self.whisperModelFile else { return false }
+                let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+                    .appendingPathComponent("WhisperModels")
+                let modelURL = directory?.appendingPathComponent(whisperFile)
+                return modelURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            }
+        }
+
+        private static func parakeetCacheDirectory(version: String) -> Bool {
+            #if canImport(FluidAudio)
+            let baseCacheDir = AsrModels.defaultCacheDirectory().deletingLastPathComponent()
+            let modelDir = baseCacheDir.appendingPathComponent(version)
+            return FileManager.default.fileExists(atPath: modelDir.path)
+            #else
+            let baseCacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+                .appendingPathComponent(version)
+            return baseCacheDir.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            #endif
+        }
+
+        /// Brand/provider name for the model (NVIDIA, Apple, OpenAI)
+        var brandName: String {
+            switch self {
+            case .parakeetTDT, .parakeetTDTv2:
+                return "NVIDIA"
+            case .appleSpeech, .appleSpeechAnalyzer:
+                return "Apple"
+            case .whisperTiny, .whisperBase, .whisperSmall, .whisperMedium, .whisperLargeTurbo, .whisperLarge:
+                return "OpenAI"
+            }
+        }
+
+        /// Whether this model uses Apple's SF Symbol for branding (apple.logo)
+        var usesAppleLogo: Bool {
+            switch self {
+            case .appleSpeech, .appleSpeechAnalyzer: return true
+            default: return false
+            }
+        }
+
+        /// Brand color for the provider badge
+        var brandColorHex: String {
+            switch self {
+            case .parakeetTDT, .parakeetTDTv2:
+                return "#76B900"
+            case .appleSpeech, .appleSpeechAnalyzer:
+                return "#A2AAAD" // Apple Gray
+            case .whisperTiny, .whisperBase, .whisperSmall, .whisperMedium, .whisperLargeTurbo, .whisperLarge:
+                return "#10A37F" // OpenAI Teal
+            }
         }
     }
 

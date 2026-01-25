@@ -53,7 +53,7 @@ struct AnalyticsPrivacyView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(self.theme.palette.cardBackground.opacity(0.2))
+        .background(self.theme.palette.contentBackground)
     }
 
     private var contactInfoView: some View {
@@ -63,11 +63,11 @@ struct AnalyticsPrivacyView: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(.ultraThinMaterial)
+                    .fill(self.theme.palette.cardBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1)
+                    .stroke(self.theme.palette.cardBorder.opacity(0.6), lineWidth: 1)
             )
     }
 

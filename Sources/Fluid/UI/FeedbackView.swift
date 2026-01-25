@@ -133,9 +133,9 @@ struct FeedbackView: View {
                                 .frame(height: 120)
                                 .padding(12)
                                 .background(RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(nsColor: NSColor.textBackgroundColor))
+                                    .fill(self.theme.palette.contentBackground)
                                     .overlay(RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(Color(nsColor: NSColor.separatorColor), lineWidth: 1.5)))
+                                        .strokeBorder(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1.2)))
                                 .scrollContentBackground(.hidden)
                                 .overlay(
                                     Group {
@@ -175,7 +175,7 @@ struct FeedbackView: View {
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 10)
                                 }
-                                .buttonStyle(GlassButtonStyle())
+                                .buttonStyle(GlassButtonStyle(height: 36))
                                 .disabled(self.feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                                     self.feedbackEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                                     self.isSendingFeedback)

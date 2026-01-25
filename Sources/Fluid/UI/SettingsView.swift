@@ -105,7 +105,7 @@ struct SettingsView: View {
                             .font(.headline)
                             .foregroundStyle(.primary)
 
-                        VStack(spacing: 0) {
+                        VStack(spacing: 16) {
                             // Launch at startup
                             self.settingsToggleRow(
                                 title: "Launch at startup",
@@ -116,8 +116,7 @@ struct SettingsView: View {
                                     set: { SettingsStore.shared.launchAtStartup = $0 }
                                 )
                             )
-
-                            Divider().padding(.vertical, 10)
+                            Divider().opacity(0.2)
 
                             // Show in Dock
                             self.settingsToggleRow(
@@ -129,8 +128,57 @@ struct SettingsView: View {
                                     set: { SettingsStore.shared.showInDock = $0 }
                                 )
                             )
+                            Divider().opacity(0.2)
 
-                            Divider().padding(.vertical, 10)
+                            // Accent Color
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .center) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Accent Color")
+                                            .font(.body)
+                                        Text("Pick a preset accent color for the app.")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    HStack(spacing: 10) {
+                                        ForEach(SettingsStore.AccentColorOption.allCases) { option in
+                                            let isSelected = self.settings.accentColorOption == option
+                                            Button {
+                                                self.settings.accentColorOption = option
+                                            } label: {
+                                                Circle()
+                                                    .fill(Color(hex: option.hex) ?? .gray)
+                                                    .frame(width: 16, height: 16)
+                                                    .overlay(
+                                                        Circle()
+                                                            .stroke(
+                                                                isSelected ? self.theme.palette.accent : self.theme.palette.cardBorder.opacity(0.5),
+                                                                lineWidth: isSelected ? 2 : 1
+                                                            )
+                                                    )
+                                                    .padding(4)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel(option.rawValue)
+                                            .help(option.rawValue)
+                                        }
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(self.theme.palette.contentBackground)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .stroke(self.theme.palette.cardBorder.opacity(0.4), lineWidth: 1)
+                                            )
+                                    )
+                                }
+                            }
+                            Divider().opacity(0.2)
 
                             // Automatic Updates
                             VStack(alignment: .leading, spacing: 6) {
@@ -272,50 +320,54 @@ struct SettingsView: View {
                 // Global Hotkey Card
                 ThemedCard(style: .standard) {
                     VStack(alignment: .leading, spacing: 14) {
-                        Label("Global Hotkey", systemImage: "keyboard")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+                        HStack(spacing: 8) {
+                            Label("Global Hotkey", systemImage: "keyboard")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+
+                            if self.accessibilityEnabled {
+                                if self.isRecordingShortcut || self.isRecordingCommandModeShortcut || self.isRecordingRewriteShortcut {
+                                    Text("Recording…")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.orange)
+                                } else if self.hotkeyManagerInitialized {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(Color.fluidGreen)
+                                            .font(.caption)
+                                        Text("Active")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    Text("Initializing…")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
 
                         if self.accessibilityEnabled {
                             VStack(alignment: .leading, spacing: 12) {
-                                // Status indicator
-                                HStack(spacing: 8) {
-                                    if self.isRecordingShortcut || self.isRecordingCommandModeShortcut || self.isRecordingRewriteShortcut {
+                                if self.isRecordingShortcut || self.isRecordingCommandModeShortcut || self.isRecordingRewriteShortcut {
+                                    HStack(spacing: 8) {
                                         Image(systemName: "hand.point.up.left.fill")
                                             .foregroundStyle(.orange)
-                                        Text("Press your new hotkey combination now...")
-                                            .font(.subheadline)
+                                        Text("Press your new hotkey combination now…")
+                                            .font(.caption)
                                             .foregroundStyle(.orange)
-                                    } else if self.hotkeyManagerInitialized {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green)
-                                        Text("Global Shortcuts Active")
-                                            .font(.subheadline.weight(.medium))
-
-                                        Spacer()
-                                    } else {
+                                    }
+                                } else if !self.hotkeyManagerInitialized {
+                                    HStack(spacing: 8) {
                                         ProgressView()
                                             .controlSize(.small)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("Hotkey Initializing...")
-                                                .font(.subheadline.weight(.medium))
-                                                .foregroundStyle(.orange)
-                                            Text("Please wait while the global hotkey system starts up")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
+                                        Text("Hotkey initializing…")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(.ultraThinMaterial.opacity(0.5))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                .stroke(.white.opacity(0.1), lineWidth: 1)
-                                        )
-                                )
 
                                 // MARK: - Shortcuts Section
 
@@ -336,8 +388,7 @@ struct SettingsView: View {
                                             self.isRecordingShortcut = true
                                         }
                                     )
-
-                                    Divider()
+                                    Divider().opacity(0.2).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         icon: "terminal.fill",
@@ -352,8 +403,7 @@ struct SettingsView: View {
                                             self.isRecordingCommandModeShortcut = true
                                         }
                                     )
-
-                                    Divider()
+                                    Divider().opacity(0.2).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         icon: "pencil.and.outline",
@@ -372,16 +422,16 @@ struct SettingsView: View {
                                 .padding(12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(.ultraThinMaterial.opacity(0.5))
+                                        .fill(self.theme.palette.elevatedCardBackground)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                .stroke(.white.opacity(0.08), lineWidth: 1)
+                                                .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
                                         )
                                 )
 
                                 // MARK: - Options Section
 
-                                VStack(spacing: 0) {
+                                VStack(spacing: 12) {
                                     self.optionToggleRow(
                                         title: "Press and Hold Mode",
                                         description: "The shortcut only records while you hold it down, giving you quick push-to-talk style control.",
@@ -391,8 +441,7 @@ struct SettingsView: View {
                                         SettingsStore.shared.pressAndHoldMode = newValue
                                         self.hotkeyManager?.enablePressAndHoldMode(newValue)
                                     }
-
-                                    Divider().padding(.vertical, 8)
+                                    Divider().opacity(0.2)
 
                                     self.optionToggleRow(
                                         title: "Show Live Preview",
@@ -402,8 +451,7 @@ struct SettingsView: View {
                                     .onChange(of: self.enableStreamingPreview) { _, newValue in
                                         SettingsStore.shared.enableStreamingPreview = newValue
                                     }
-
-                                    Divider().padding(.vertical, 8)
+                                    Divider().opacity(0.2)
 
                                     self.optionToggleRow(
                                         title: "Copy to Clipboard",
@@ -413,8 +461,7 @@ struct SettingsView: View {
                                     .onChange(of: self.copyToClipboard) { _, newValue in
                                         SettingsStore.shared.copyTranscriptionToClipboard = newValue
                                     }
-
-                                    Divider().padding(.vertical, 8)
+                                    Divider().opacity(0.2)
 
                                     self.optionToggleRow(
                                         title: "Save Transcription History",
@@ -424,8 +471,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.saveTranscriptionHistory = $0 }
                                         )
                                     )
-
-                                    Divider().padding(.vertical, 8)
+                                    Divider().opacity(0.2)
 
                                     self.optionToggleRow(
                                         title: "GAAV Mode",
@@ -435,8 +481,17 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.gaavModeEnabled = $0 }
                                         )
                                     )
+                                    Divider().opacity(0.2)
 
-                                    Divider().padding(.vertical, 8)
+                                    self.optionToggleRow(
+                                        title: "Pause Media During Transcription",
+                                        description: "Automatically pause currently playing audio/video when transcription starts. Resumes only if FluidVoice paused it.",
+                                        isOn: Binding(
+                                            get: { SettingsStore.shared.pauseMediaDuringTranscription },
+                                            set: { SettingsStore.shared.pauseMediaDuringTranscription = $0 }
+                                        )
+                                    )
+                                    Divider().opacity(0.2)
 
                                     self.optionToggleRow(
                                         title: "Share Anonymous Analytics",
@@ -455,10 +510,6 @@ struct SettingsView: View {
                                     .padding(.top, 6)
                                 }
                                 .padding(12)
-                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(.ultraThinMaterial.opacity(0.5))
-                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(.white.opacity(0.08), lineWidth: 1)))
                             }
                         } else {
                             // Hotkey disabled - accessibility not enabled
@@ -1280,11 +1331,11 @@ struct AnalyticsConfirmationView: View {
                 .padding(12)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(.ultraThinMaterial)
+                        .fill(self.theme.palette.cardBackground)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1)
+                        .stroke(self.theme.palette.cardBorder.opacity(0.6), lineWidth: 1)
                 )
 
             Text(self.contactInfoText)

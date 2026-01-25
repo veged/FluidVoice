@@ -5,6 +5,7 @@ struct MeetingTranscriptionView: View {
     let asrService: ASRService
     @StateObject private var transcriptionService: MeetingTranscriptionService
     @State private var selectedFileURL: URL?
+    @Environment(\.theme) private var theme
 
     init(asrService: ASRService) {
         self.asrService = asrService
@@ -34,7 +35,7 @@ struct MeetingTranscriptionView: View {
             VStack(spacing: 8) {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 48))
-                    .foregroundStyle(.green.gradient)
+                    .foregroundStyle(Color.fluidGreen.gradient)
 
                 Text("Meeting Transcription")
                     .font(.title2)
@@ -72,14 +73,14 @@ struct MeetingTranscriptionView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(self.theme.palette.windowBackground)
         .overlay(alignment: .topTrailing) {
             if self.showingCopyConfirmation {
                 Text("Copied!")
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(.green.opacity(0.9))
+                    .background(Color.fluidGreen.opacity(0.9))
                     .foregroundColor(.white)
                     .cornerRadius(8)
                     .padding()
@@ -97,7 +98,7 @@ struct MeetingTranscriptionView: View {
                 HStack {
                     Image(systemName: "doc.fill")
                         .font(.title2)
-                        .foregroundColor(.green)
+                        .foregroundColor(Color.fluidGreen)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(fileURL.lastPathComponent)
@@ -120,8 +121,14 @@ struct MeetingTranscriptionView: View {
                     .buttonStyle(.plain)
                 }
                 .padding()
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(self.theme.palette.cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
+                        )
+                )
 
                 // Transcribe Button
                 Button(action: {
@@ -159,11 +166,17 @@ struct MeetingTranscriptionView: View {
                     .padding(32)
                 }
                 .buttonStyle(.plain)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(self.theme.palette.cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                        )
+                )
                 .overlay(RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [8]))
-                    .foregroundColor(.green.opacity(0.3)))
+                    .foregroundColor(Color.fluidGreen.opacity(0.3)))
             }
         }
         .fileImporter(
@@ -207,8 +220,14 @@ struct MeetingTranscriptionView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(self.theme.palette.cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Results Card
@@ -265,12 +284,24 @@ struct MeetingTranscriptionView: View {
                     .padding()
             }
             .frame(maxHeight: 300)
-            .background(Color(nsColor: .textBackgroundColor))
-            .cornerRadius(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(self.theme.palette.contentBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                    )
+            )
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(self.theme.palette.cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                )
+        )
         .fileExporter(
             isPresented: self.$showingExportDialog,
             document: TranscriptionDocument(
@@ -308,8 +339,14 @@ struct MeetingTranscriptionView: View {
             .buttonStyle(.borderless)
         }
         .padding()
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.red.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.red.opacity(0.4), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Helper Functions

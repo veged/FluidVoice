@@ -153,7 +153,7 @@ struct CommandModeView: View {
             .help("Ask for confirmation before running commands")
         }
         .padding()
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(self.theme.palette.windowBackground)
         .confirmationDialog(
             "Delete this chat?",
             isPresented: self.$showingClearConfirmation,
@@ -188,7 +188,7 @@ struct CommandModeView: View {
                 .foregroundStyle(self.isHoveringHowTo ? .primary : .secondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(self.isHoveringHowTo ? Color.primary.opacity(0.05) : Color.clear)
+                .background(self.isHoveringHowTo ? self.theme.palette.cardBackground.opacity(0.6) : Color.clear)
                 .cornerRadius(4)
             }
             .buttonStyle(.plain)
@@ -213,7 +213,7 @@ struct CommandModeView: View {
                                 .fontWeight(.medium)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.primary.opacity(0.1))
+                                .background(self.theme.palette.cardBackground.opacity(0.8))
                                 .cornerRadius(4)
                             Text("to open Command Mode, speak your command, then press again to send.")
                                 .font(.caption)
@@ -256,7 +256,7 @@ struct CommandModeView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
+        .background(self.theme.palette.contentBackground)
     }
 
     private func howToItem(_ text: String) -> some View {
@@ -304,6 +304,16 @@ struct CommandModeView: View {
                 }
                 .padding()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(self.theme.palette.cardBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                    )
+            )
             .onChange(of: self.service.conversationHistory.count) { _, _ in
                 self.scrollToBottom(proxy)
             }
@@ -365,7 +375,7 @@ struct CommandModeView: View {
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .background(self.theme.palette.cardBackground.opacity(0.9))
         .cornerRadius(8)
         .frame(maxWidth: 520, alignment: .leading)
     }
@@ -376,7 +386,7 @@ struct CommandModeView: View {
         CommandShimmerText(text: self.currentStepLabel)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+            .background(self.theme.palette.cardBackground.opacity(0.9))
             .cornerRadius(6)
     }
 
@@ -390,7 +400,7 @@ struct CommandModeView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .frame(maxWidth: 520, alignment: .leading)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+            .background(self.theme.palette.contentBackground.opacity(0.9))
             .cornerRadius(8)
             .drawingGroup() // Flatten to bitmap for faster updates
         // textSelection disabled during streaming - re-enabled in final message
@@ -456,7 +466,7 @@ struct CommandModeView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(self.theme.palette.cardBackground)
 
                 Divider()
 
@@ -465,7 +475,7 @@ struct CommandModeView: View {
                     .textSelection(.enabled)
                     .padding(10)
             }
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(self.theme.palette.contentBackground)
             .cornerRadius(8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
@@ -497,38 +507,34 @@ struct CommandModeView: View {
 
     private var inputArea: some View {
         HStack(spacing: 8) {
-            // Provider Selector (compact)
-            Picker("", selection: self.$settings.commandModeSelectedProviderID) {
-                Text("OpenAI").tag("openai")
-                Text("Groq").tag("groq")
+            // Provider Selector (compact, searchable)
+            SearchableProviderPicker(
+                builtInProviders: self.builtInProvidersList,
+                savedProviders: self.settings.savedProviders,
+                selectedProviderID: Binding(
+                    get: { self.settings.commandModeSelectedProviderID },
+                    set: { newValue in
+                        // Prevent selecting disabled Apple Intelligence
+                        if newValue == "apple-intelligence-disabled" || newValue == "apple-intelligence" {
+                            self.settings.commandModeSelectedProviderID = "openai"
+                        } else {
+                            self.settings.commandModeSelectedProviderID = newValue
+                        }
+                        self.updateAvailableModels()
+                    }
+                )
+            )
 
-                // Apple Intelligence - disabled for Command Mode (no tool support)
-                Text("Apple Intelligence (No tools)")
-                    .foregroundColor(.secondary)
-                    .tag("apple-intelligence-disabled")
-
-                ForEach(self.settings.savedProviders) { provider in
-                    Text(provider.name).tag(provider.id)
-                }
-            }
-            .frame(width: 110)
-            .onChange(of: self.settings.commandModeSelectedProviderID) { _, newValue in
-                // Prevent selecting disabled Apple Intelligence
-                if newValue == "apple-intelligence-disabled" || newValue == "apple-intelligence" {
-                    self.settings.commandModeSelectedProviderID = "openai"
-                }
-            }
-
-            // Model Selector (compact)
-            Picker("", selection: Binding(
-                get: { self.settings.commandModeSelectedModel ?? self.availableModels.first ?? "gpt-4o" },
-                set: { self.settings.commandModeSelectedModel = $0 }
-            )) {
-                ForEach(self.availableModels, id: \.self) { model in
-                    Text(model).tag(model)
-                }
-            }
-            .frame(width: 130)
+            // Model Selector (compact, searchable)
+            SearchableModelPicker(
+                models: self.availableModels,
+                selectedModel: Binding(
+                    get: { self.settings.commandModeSelectedModel ?? self.availableModels.first ?? "" },
+                    set: { self.settings.commandModeSelectedModel = $0 }
+                ),
+                onRefresh: nil,
+                isRefreshing: false
+            )
 
             // Input field (flexible)
             TextField("Type a command or ask a question...", text: self.$inputText)
@@ -548,12 +554,12 @@ struct CommandModeView: View {
             Button(action: self.toggleRecording) {
                 Image(systemName: self.asr.isRunning ? "stop.circle.fill" : "mic.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(self.asr.isRunning ? Color.red : Color.accentColor)
+                    .foregroundStyle(self.asr.isRunning ? Color.red : self.theme.palette.accent)
             }
             .buttonStyle(.plain)
         }
         .padding()
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(self.theme.palette.windowBackground)
     }
 
     // MARK: - Actions
@@ -562,7 +568,7 @@ struct CommandModeView: View {
         if self.asr.isRunning {
             Task { await self.asr.stop() }
         } else {
-            self.asr.start()
+            Task { await self.asr.start() }
         }
     }
 
@@ -577,7 +583,7 @@ struct CommandModeView: View {
 
     private func updateAvailableModels() {
         let currentProviderID = self.settings.commandModeSelectedProviderID
-        let currentModel = self.settings.commandModeSelectedModel ?? "gpt-4o"
+        let currentModel = self.settings.commandModeSelectedModel ?? "gpt-4.1"
 
         // Pull models from the shared pool configured in AI Settings
         let possibleKeys = self.providerKeys(for: currentProviderID)
@@ -588,48 +594,27 @@ struct CommandModeView: View {
         if let stored = storedList {
             self.availableModels = stored
         } else {
-            self.availableModels = self.defaultModels(for: currentProviderID)
+            self.availableModels = ModelRepository.shared.defaultModels(for: currentProviderID)
         }
 
         // If current model not in list, select first available
         if !self.availableModels.contains(currentModel) {
-            self.settings.commandModeSelectedModel = self.availableModels.first ?? "gpt-4o"
+            self.settings.commandModeSelectedModel = self.availableModels.first ?? "gpt-4.1"
         }
     }
 
     /// Returns possible keys used to store models for a provider.
     private func providerKeys(for providerID: String) -> [String] {
-        var keys: [String] = []
-        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmed.isEmpty {
-            return [providerID]
-        }
-
-        if trimmed == "openai" || trimmed == "groq" {
-            return [trimmed]
-        }
-
-        if trimmed.hasPrefix("custom:") {
-            keys.append(trimmed)
-            keys.append(String(trimmed.dropFirst("custom:".count)))
-        } else {
-            keys.append("custom:\(trimmed)")
-            keys.append(trimmed)
-        }
-
-        // Add legacy key used in ContentView before the fix
-        keys.append("custom:\\(trimmed)")
-
-        return Array(Set(keys))
+        return ModelRepository.shared.providerKeys(for: providerID)
     }
 
-    private func defaultModels(for provider: String) -> [String] {
-        switch provider {
-        case "openai": return ["gpt-4.1"]
-        case "groq": return ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"]
-        default: return ["gpt-4.1"]
-        }
+    private var builtInProvidersList: [(id: String, name: String)] {
+        // Apple Intelligence disabled for Command Mode (no tool support)
+        ModelRepository.shared.builtInProvidersList(
+            includeAppleIntelligence: true,
+            appleIntelligenceAvailable: false,
+            appleIntelligenceDisabledReason: "No tools"
+        )
     }
 }
 
@@ -726,6 +711,7 @@ struct ThinkingShimmerLabel: View {
 
 struct MessageBubble: View {
     let message: CommandModeService.Message
+    @Environment(\.theme) private var theme
     @State private var isThinkingExpanded: Bool = false
 
     var body: some View {
@@ -747,7 +733,7 @@ struct MessageBubble: View {
             .font(.system(size: 13))
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color.accentColor.opacity(0.15))
+            .background(self.theme.palette.accent.opacity(0.15))
             .cornerRadius(10)
             .frame(maxWidth: 380, alignment: .trailing)
     }
@@ -835,7 +821,7 @@ struct MessageBubble: View {
                     .padding(.bottom, 6)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+        .background(self.theme.palette.cardBackground.opacity(0.85))
         .cornerRadius(6)
     }
 
@@ -861,7 +847,7 @@ struct MessageBubble: View {
                 .textSelection(.enabled)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .background(Color(nsColor: .textBackgroundColor))
+                .background(self.theme.palette.contentBackground)
                 .cornerRadius(6)
         }
     }
@@ -917,7 +903,7 @@ struct MessageBubble: View {
                 .frame(maxHeight: 120)
             }
         }
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+        .background(self.theme.palette.cardBackground.opacity(0.85))
         .cornerRadius(6)
     }
 

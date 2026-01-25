@@ -163,16 +163,16 @@ final class RewriteModeService: ObservableObject {
             )
         }
 
-        let model = settings.rewriteModeSelectedModel ?? "gpt-4o"
+        let model = settings.rewriteModeSelectedModel ?? "gpt-4.1"
         let apiKey = settings.getAPIKey(for: providerID) ?? ""
 
         let baseURL: String
         if let provider = settings.savedProviders.first(where: { $0.id == providerID }) {
             baseURL = provider.baseURL
-        } else if providerID == "groq" {
-            baseURL = "https://api.groq.com/openai/v1"
+        } else if ModelRepository.shared.isBuiltIn(providerID) {
+            baseURL = ModelRepository.shared.defaultBaseURL(for: providerID)
         } else {
-            baseURL = "https://api.openai.com/v1"
+            baseURL = ModelRepository.shared.defaultBaseURL(for: "openai")
         }
 
         // Different system prompts for each mode

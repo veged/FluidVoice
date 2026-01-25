@@ -40,7 +40,7 @@ struct TranscriptionHistoryView: View {
                 self.footerView
             }
             .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
-            .background(self.theme.palette.cardBackground.opacity(0.3))
+            .background(self.theme.palette.contentBackground)
 
             // MARK: - Right Panel: Entry Detail
 
@@ -96,9 +96,9 @@ struct TranscriptionHistoryView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 8)
-            .fill(.ultraThinMaterial)
+            .fill(self.theme.palette.cardBackground)
             .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.08), lineWidth: 1)))
+                .stroke(self.theme.palette.cardBorder.opacity(0.6), lineWidth: 1)))
     }
 
     // MARK: - Entry List
@@ -339,7 +339,7 @@ struct TranscriptionHistoryView: View {
             }
             .padding(24)
         }
-        .background(self.theme.palette.cardBackground.opacity(0.15))
+        .background(self.theme.palette.contentBackground)
     }
 
     private func detailSection(
@@ -376,9 +376,9 @@ struct TranscriptionHistoryView: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 10)
-                    .fill(.ultraThinMaterial)
+                    .fill(self.theme.palette.cardBackground)
                     .overlay(RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(isSecondary ? 0.04 : 0.08), lineWidth: 1)))
+                        .stroke(self.theme.palette.cardBorder.opacity(isSecondary ? 0.35 : 0.5), lineWidth: 1)))
         }
     }
 
@@ -424,7 +424,7 @@ struct TranscriptionHistoryView: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8)
-            .fill(.ultraThinMaterial.opacity(0.5)))
+            .fill(self.theme.palette.cardBackground.opacity(0.9)))
     }
 
     // MARK: - No Selection View
@@ -440,7 +440,7 @@ struct TranscriptionHistoryView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(self.theme.palette.cardBackground.opacity(0.15))
+        .background(self.theme.palette.contentBackground)
     }
 }
 

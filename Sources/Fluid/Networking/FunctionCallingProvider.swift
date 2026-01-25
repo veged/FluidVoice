@@ -186,7 +186,7 @@ final class FunctionCallingProvider {
         baseURL: String
     ) async -> LLMResult {
         let endpoint = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?
-            "https://api.openai.com/v1" : baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            ModelRepository.shared.defaultBaseURL(for: "openai") : baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Build the full URL
         let fullEndpoint: String
@@ -327,7 +327,7 @@ final class FunctionCallingProvider {
         baseURL: String
     ) async -> LLMResult {
         let endpoint = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?
-            "https://api.openai.com/v1" : baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            ModelRepository.shared.defaultBaseURL(for: "openai") : baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let fullEndpoint: String
         if endpoint.contains("/chat/completions") ||

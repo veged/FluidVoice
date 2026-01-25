@@ -28,10 +28,12 @@ enum DictationAIPostProcessingGate {
         if let saved = settings.savedProviders.first(where: { $0.id == providerID }) {
             return saved.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if providerID == "groq" {
-            return "https://api.groq.com/openai/v1"
+        // Use ModelRepository for all built-in providers (openai, groq, cerebras, google, openrouter, ollama, lmstudio)
+        if ModelRepository.shared.isBuiltIn(providerID) {
+            return ModelRepository.shared.defaultBaseURL(for: providerID)
         }
-        return "https://api.openai.com/v1"
+        // Unknown provider - fallback to OpenAI
+        return ModelRepository.shared.defaultBaseURL(for: "openai")
     }
 
     static func isLocalEndpoint(_ urlString: String) -> Bool {

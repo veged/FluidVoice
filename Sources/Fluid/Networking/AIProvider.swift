@@ -69,7 +69,7 @@ final class OpenAICompatibleProvider: AIProvider {
     }
 
     func process(systemPrompt: String, userText: String, model: String, apiKey: String, baseURL: String, stream: Bool = false) async -> String {
-        let endpoint = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://api.openai.com/v1" : baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let endpoint = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ModelRepository.shared.defaultBaseURL(for: "openai") : baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Build the full URL - only append /chat/completions if not already present
         let fullEndpoint: String

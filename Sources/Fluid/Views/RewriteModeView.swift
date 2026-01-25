@@ -6,6 +6,7 @@ struct RewriteModeView: View {
     private var asr: ASRService { self.appServices.asr }
     @ObservedObject var settings = SettingsStore.shared
     @EnvironmentObject var menuBarManager: MenuBarManager
+    @Environment(\.theme) private var theme
     var onClose: (() -> Void)?
 
     @State private var inputText: String = ""
@@ -23,7 +24,7 @@ struct RewriteModeView: View {
             HStack {
                 Image(systemName: "pencil.and.outline")
                     .font(.title2)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(self.theme.palette.accent)
                 Text("Write Mode")
                     .font(.title2)
                     .fontWeight(.bold)
@@ -37,7 +38,7 @@ struct RewriteModeView: View {
                 .buttonStyle(.plain)
             }
             .padding()
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(self.theme.palette.windowBackground)
 
             // How To (collapsible)
             self.howToSection
@@ -68,7 +69,7 @@ struct RewriteModeView: View {
                                 Text(self.service.originalText)
                                     .padding()
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color.gray.opacity(0.1))
+                                    .background(self.theme.palette.cardBackground)
                                     .cornerRadius(8)
                                     .textSelection(.enabled)
                             }
@@ -77,7 +78,7 @@ struct RewriteModeView: View {
                         VStack(spacing: 12) {
                             Image(systemName: "text.bubble")
                                 .font(.system(size: 48))
-                                .foregroundStyle(.teal)
+                                .foregroundStyle(self.theme.palette.accent)
                             Text("Write Mode")
                                 .font(.title2)
                                 .fontWeight(.bold)
@@ -101,12 +102,12 @@ struct RewriteModeView: View {
                             Text("Rewritten Text")
                                 .font(.caption)
                                 .fontWeight(.bold)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(self.theme.palette.accent)
 
                             Text(self.service.rewrittenText)
                                 .padding()
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.green.opacity(0.1))
+                                .background(self.theme.palette.accent.opacity(0.1))
                                 .cornerRadius(8)
                                 .textSelection(.enabled)
 
@@ -123,7 +124,7 @@ struct RewriteModeView: View {
                                     self.onClose?()
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(.green)
+                                .tint(self.theme.palette.accent)
                             }
                             .padding(.top, 8)
                         }
@@ -143,49 +144,50 @@ struct RewriteModeView: View {
                 }
                 .padding()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(self.theme.palette.cardBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
+                    )
+            )
 
             Divider()
 
             // Input Area with model selectors inline
             HStack(spacing: 8) {
-                // Provider Selector (compact)
-                Picker("", selection: self.$settings.rewriteModeSelectedProviderID) {
-                    Text("OpenAI").tag("openai")
-                    Text("Groq").tag("groq")
-
-                    // Apple Intelligence
-                    if AppleIntelligenceService.isAvailable {
-                        Text("Apple Intelligence").tag("apple-intelligence")
-                    } else {
-                        Text("Apple Intelligence (Unavailable)")
-                            .foregroundColor(.secondary)
-                            .tag("apple-intelligence-disabled")
-                    }
-
-                    ForEach(self.settings.savedProviders) { provider in
-                        Text(provider.name).tag(provider.id)
-                    }
-                }
-                .frame(width: 110)
-                .onChange(of: self.settings.rewriteModeSelectedProviderID) { _, newValue in
-                    // Prevent selecting disabled Apple Intelligence
-                    if newValue == "apple-intelligence-disabled" {
-                        self.settings.rewriteModeSelectedProviderID = "openai"
-                    }
-                    self.updateAvailableModels()
-                }
+                // Provider Selector (compact, searchable)
+                SearchableProviderPicker(
+                    builtInProviders: self.builtInProvidersList,
+                    savedProviders: self.settings.savedProviders,
+                    selectedProviderID: Binding(
+                        get: { self.settings.rewriteModeSelectedProviderID },
+                        set: { newValue in
+                            // Prevent selecting disabled Apple Intelligence
+                            if newValue == "apple-intelligence-disabled" {
+                                self.settings.rewriteModeSelectedProviderID = "openai"
+                            } else {
+                                self.settings.rewriteModeSelectedProviderID = newValue
+                            }
+                            self.updateAvailableModels()
+                        }
+                    )
+                )
 
                 // Model Selector (hidden for Apple Intelligence)
                 if self.settings.rewriteModeSelectedProviderID != "apple-intelligence" {
-                    Picker("", selection: Binding(
-                        get: { self.settings.rewriteModeSelectedModel ?? self.availableModels.first ?? "gpt-4o" },
-                        set: { self.settings.rewriteModeSelectedModel = $0 }
-                    )) {
-                        ForEach(self.availableModels, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                    .frame(width: 130)
+                    SearchableModelPicker(
+                        models: self.availableModels,
+                        selectedModel: Binding(
+                            get: { self.settings.rewriteModeSelectedModel ?? self.availableModels.first ?? "" },
+                            set: { self.settings.rewriteModeSelectedModel = $0 }
+                        ),
+                        onRefresh: nil,
+                        isRefreshing: false
+                    )
                 }
 
                 // Input field (flexible)
@@ -209,7 +211,7 @@ struct RewriteModeView: View {
                 Button(action: self.toggleRecording) {
                     Image(systemName: self.asr.isRunning ? "stop.circle.fill" : "mic.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(self.asr.isRunning ? Color.red : Color.accentColor)
+                        .foregroundStyle(self.asr.isRunning ? Color.red : self.theme.palette.accent)
                 }
                 .buttonStyle(.plain)
 
@@ -219,7 +221,7 @@ struct RewriteModeView: View {
                 }
             }
             .padding()
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(self.theme.palette.windowBackground)
 
             // Thinking view (real-time, during processing)
             if self.service.isProcessing && self.settings.showThinkingTokens && !self.service.streamingThinkingText.isEmpty {
@@ -247,7 +249,7 @@ struct RewriteModeView: View {
         if self.asr.isRunning {
             Task { await self.asr.stop() }
         } else {
-            self.asr.start()
+            Task { await self.asr.start() }
         }
     }
 
@@ -264,7 +266,7 @@ struct RewriteModeView: View {
 
     private func updateAvailableModels() {
         let currentProviderID = self.settings.rewriteModeSelectedProviderID
-        let currentModel = self.settings.rewriteModeSelectedModel ?? "gpt-4o"
+        let currentModel = self.settings.rewriteModeSelectedModel ?? "gpt-4.1"
 
         // Apple Intelligence has only one model
         if currentProviderID == "apple-intelligence" {
@@ -281,48 +283,25 @@ struct RewriteModeView: View {
         if let stored = storedList {
             self.availableModels = stored
         } else {
-            self.availableModels = self.defaultModels(for: currentProviderID)
+            self.availableModels = ModelRepository.shared.defaultModels(for: currentProviderID)
         }
 
         // If current model not in list, select first available
         if !self.availableModels.contains(currentModel) {
-            self.settings.rewriteModeSelectedModel = self.availableModels.first ?? "gpt-4o"
+            self.settings.rewriteModeSelectedModel = self.availableModels.first ?? "gpt-4.1"
         }
     }
 
     private func providerKeys(for providerID: String) -> [String] {
-        var keys: [String] = []
-        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmed.isEmpty {
-            return [providerID]
-        }
-
-        if trimmed == "openai" || trimmed == "groq" {
-            return [trimmed]
-        }
-
-        if trimmed.hasPrefix("custom:") {
-            keys.append(trimmed)
-            keys.append(String(trimmed.dropFirst("custom:".count)))
-        } else {
-            keys.append("custom:\(trimmed)")
-            keys.append(trimmed)
-        }
-
-        return Array(Set(keys))
+        return ModelRepository.shared.providerKeys(for: providerID)
     }
 
-    private func defaultModels(for provider: String) -> [String] {
-        switch provider {
-        case "openai": return ["gpt-4.1"]
-        case "groq": return ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"]
-        case "apple-intelligence": return ["System Model"]
-        default: return ["gpt-4.1"]
-        }
+    private var builtInProvidersList: [(id: String, name: String)] {
+        ModelRepository.shared.builtInProvidersList(
+            includeAppleIntelligence: true,
+            appleIntelligenceAvailable: AppleIntelligenceService.isAvailable
+        )
     }
-
-    // MARK: - How To Section
 
     private var shortcutDisplay: String {
         self.settings.rewriteModeHotkeyShortcut.displayString
@@ -369,7 +348,7 @@ struct RewriteModeView: View {
                                 .fontWeight(.medium)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.primary.opacity(0.1))
+                                .background(self.theme.palette.cardBackground.opacity(0.8))
                                 .cornerRadius(4)
                             Text("and speak what you want to write.")
                                 .font(.caption)
@@ -412,7 +391,7 @@ struct RewriteModeView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
+        .background(self.theme.palette.contentBackground)
     }
 
     private func howToItem(_ text: String) -> some View {
@@ -469,7 +448,7 @@ struct RewriteModeView: View {
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .background(self.theme.palette.cardBackground.opacity(0.9))
         .cornerRadius(8)
     }
 }

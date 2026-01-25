@@ -17,7 +17,8 @@ import SwiftUI
 
 enum SidebarItem: Hashable {
     case welcome
-    case aiSettings
+    case voiceEngine
+    case aiEnhancements
     case preferences
     case meetingTools
     case customDictionary
@@ -42,6 +43,7 @@ struct ContentView: View {
     @StateObject private var commandModeService = CommandModeService()
     @StateObject private var rewriteModeService = RewriteModeService()
     @EnvironmentObject private var menuBarManager: MenuBarManager
+    @ObservedObject private var settings = SettingsStore.shared
 
     // Computed properties to access shared services from AppServices container
     // This maintains backward compatibility with the existing code while
@@ -58,6 +60,7 @@ struct ContentView: View {
     @State private var commandModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.commandModeHotkeyShortcut
     @State private var rewriteModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.rewriteModeHotkeyShortcut
     @State private var isCommandModeShortcutEnabled: Bool = SettingsStore.shared.commandModeShortcutEnabled
+    @State private var aiSettingsExpanded: Bool = true
     @State private var isRewriteModeShortcutEnabled: Bool = SettingsStore.shared.rewriteModeShortcutEnabled
     @State private var isRecordingForRewrite: Bool = false // Track if current recording is for rewrite mode
     @State private var isRecordingForCommand: Bool = false // Track if current recording is for command mode
@@ -88,7 +91,7 @@ struct ContentView: View {
     @State private var aiInputText: String = ""
     @State private var aiOutputText: String = ""
     @State private var isCallingAI: Bool = false
-    @State private var openAIBaseURL: String = "https://api.openai.com/v1"
+    @State private var openAIBaseURL: String = ModelRepository.shared.defaultBaseURL(for: "openai")
 
     @State private var enableDebugLogs: Bool = SettingsStore.shared.enableDebugLogs
     @State private var pressAndHoldModeEnabled: Bool = SettingsStore.shared.pressAndHoldMode
@@ -278,10 +281,11 @@ struct ContentView: View {
             for (key, models) in self.availableModelsByProvider {
                 let lower = key.lowercased()
                 let newKey: String
-                if lower == "openai" || lower == "groq" {
+                // Use ModelRepository to correctly identify ALL built-in providers
+                if ModelRepository.shared.isBuiltIn(lower) {
                     newKey = lower
                 } else {
-                    newKey = key.hasPrefix("custom:") ? key : "custom:\\(key)"
+                    newKey = key.hasPrefix("custom:") ? key : "custom:\(key)"
                 }
                 // Keep only unique, trimmed models
                 let clean = Array(Set(models.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })).sorted()
@@ -294,8 +298,9 @@ struct ContentView: View {
             var normalizedSel: [String: String] = [:]
             for (key, model) in self.selectedModelByProvider {
                 let lower = key.lowercased()
-                let newKey: String = (lower == "openai" || lower == "groq") ? lower :
-                    (key.hasPrefix("custom:") ? key : "custom:\\(key)")
+                // Use ModelRepository to correctly identify ALL built-in providers
+                let newKey: String = ModelRepository.shared.isBuiltIn(lower) ? lower :
+                    (key.hasPrefix("custom:") ? key : "custom:\(key)")
                 if let list = normalized[newKey], list.contains(model) { normalizedSel[newKey] = model }
             }
             self.selectedModelByProvider = normalizedSel
@@ -311,7 +316,7 @@ struct ContentView: View {
                 self.availableModels = stored
             } else {
                 // Built-in defaults
-                self.availableModels = self.defaultModels(for: self.providerKey(for: self.selectedProviderID))
+                self.availableModels = ModelRepository.shared.defaultModels(for: self.providerKey(for: self.selectedProviderID))
             }
 
             // Restore previously selected model if valid
@@ -709,53 +714,90 @@ struct ContentView: View {
                 Label("Welcome", systemImage: "house.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .welcome))
 
-            NavigationLink(value: SidebarItem.aiSettings) {
-                Label("AI Settings", systemImage: "sparkles")
-                    .font(.system(size: 15, weight: .medium))
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.aiSettingsExpanded.toggle()
+                }
+            }) {
+                HStack {
+                    Label("AI Settings", systemImage: "sparkles")
+                        .font(.system(size: 15, weight: .medium))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(self.aiSettingsExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if self.aiSettingsExpanded {
+                NavigationLink(value: SidebarItem.voiceEngine) {
+                    Label("Voice Engine", systemImage: "waveform")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                .listRowBackground(self.sidebarRowBackground(for: .voiceEngine))
+
+                NavigationLink(value: SidebarItem.aiEnhancements) {
+                    Label("AI Enhancements", systemImage: "sparkles")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                .listRowBackground(self.sidebarRowBackground(for: .aiEnhancements))
             }
 
             NavigationLink(value: SidebarItem.commandMode) {
                 Label("Command Mode", systemImage: "terminal.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .commandMode))
 
             NavigationLink(value: SidebarItem.rewriteMode) {
                 Label("Write Mode", systemImage: "pencil.and.outline")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .rewriteMode))
 
             NavigationLink(value: SidebarItem.meetingTools) {
                 Label("File Transcription", systemImage: "doc.text.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .meetingTools))
 
             NavigationLink(value: SidebarItem.customDictionary) {
                 Label("Custom Dictionary", systemImage: "text.book.closed.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .customDictionary))
 
             NavigationLink(value: SidebarItem.stats) {
                 Label("Stats", systemImage: "chart.bar.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .stats))
 
             NavigationLink(value: SidebarItem.history) {
                 Label("History", systemImage: "clock.arrow.circlepath")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .history))
 
             NavigationLink(value: SidebarItem.preferences) {
                 Label("Preferences", systemImage: "gearshape.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .preferences))
 
             NavigationLink(value: SidebarItem.feedback) {
                 Label("Feedback", systemImage: "envelope.fill")
                     .font(.system(size: 15, weight: .medium))
             }
+            .listRowBackground(self.sidebarRowBackground(for: .feedback))
         }
         .listStyle(.sidebar)
+        .animation(nil, value: self.selectedSidebarItem)
         .navigationTitle("FluidVoice")
         .scrollContentBackground(.hidden)
         .background {
@@ -768,17 +810,28 @@ struct ContentView: View {
         .tint(self.theme.palette.accent)
     }
 
+    private func sidebarRowBackground(for item: SidebarItem) -> some View {
+        let isSelected = self.selectedSidebarItem == item
+        return RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(isSelected ? self.settings.accentColor.opacity(0.15) : .clear)
+            .padding(.vertical, 2)
+    }
+
     private var detailView: some View {
         ZStack {
             self.theme.palette.windowBackground
+                .opacity(0.98)
                 .ignoresSafeArea()
 
             Rectangle()
                 .fill(self.theme.materials.window)
+                .opacity(0.75)
                 .ignoresSafeArea()
 
             self.detailContent
-                .transition(.opacity)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
         }
     }
 
@@ -786,8 +839,16 @@ struct ContentView: View {
         switch self.selectedSidebarItem ?? .welcome {
         case .welcome:
             return AnyView(self.welcomeView)
-        case .aiSettings:
-            return AnyView(AISettingsView())
+        case .voiceEngine:
+            return AnyView(VoiceEngineSettingsScreen(
+                appServices: self.appServices,
+                theme: self.theme
+            ))
+        case .aiEnhancements:
+            return AnyView(AIEnhancementSettingsScreen(
+                menuBarManager: self.menuBarManager,
+                theme: self.theme
+            ))
         case .preferences:
             return AnyView(self.preferencesView)
         case .meetingTools:
@@ -815,14 +876,8 @@ struct ContentView: View {
             playgroundUsed: self.$playgroundUsed,
             isTranscriptionFocused: self.$isTranscriptionFocused,
             accessibilityEnabled: self.accessibilityEnabled,
-            providerAPIKeys: self.providerAPIKeys,
-            currentProvider: self.currentProvider,
-            openAIBaseURL: self.openAIBaseURL,
-            availableModels: self.availableModels,
-            selectedModel: self.selectedModel,
             stopAndProcessTranscription: { await self.stopAndProcessTranscription() },
             startRecording: self.startRecording,
-            isLocalEndpoint: self.isLocalEndpoint,
             openAccessibilitySettings: self.openAccessibilitySettings
         )
     }
@@ -1012,17 +1067,11 @@ struct ContentView: View {
     // MARK: - Provider Management Functions
 
     private func providerKey(for providerID: String) -> String {
-        if providerID == "openai" || providerID == "groq" { return providerID }
-        // Saved providers use their stable id
+        // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
+        // Saved providers use their stable id with "custom:" prefix (if not already present)
+        if providerID.hasPrefix("custom:") { return providerID }
         return providerID.isEmpty ? self.currentProvider : "custom:\(providerID)"
-    }
-
-    private func defaultModels(for providerKey: String) -> [String] {
-        switch providerKey {
-        case "openai": return ["gpt-4.1"]
-        case "groq": return ["openai/gpt-oss-120b"]
-        default: return []
-        }
     }
 
     private func updateCurrentProvider() {
@@ -1202,41 +1251,7 @@ struct ContentView: View {
     // MARK: - Local Endpoint Detection
 
     private func isLocalEndpoint(_ urlString: String) -> Bool {
-        guard let url = URL(string: urlString),
-              let host = url.host else { return false }
-
-        let hostLower = host.lowercased()
-
-        // Check for localhost variations
-        if hostLower == "localhost" || hostLower == "127.0.0.1" {
-            return true
-        }
-
-        // Check for private IP ranges
-        // 127.x.x.x
-        if hostLower.hasPrefix("127.") {
-            return true
-        }
-        // 10.x.x.x
-        if hostLower.hasPrefix("10.") {
-            return true
-        }
-        // 192.168.x.x
-        if hostLower.hasPrefix("192.168.") {
-            return true
-        }
-        // 172.16.x.x - 172.31.x.x
-        if hostLower.hasPrefix("172.") {
-            let components = hostLower.split(separator: ".")
-            if components.count >= 2,
-               let secondOctet = Int(components[1]),
-               secondOctet >= 16 && secondOctet <= 31
-            {
-                return true
-            }
-        }
-
-        return false
+        return ModelRepository.shared.isLocalEndpoint(urlString)
     }
 
     // NOTE: Thinking token filtering is now handled by LLMClient.stripThinkingTags()
@@ -1258,20 +1273,19 @@ struct ContentView: View {
 
         // Get provider info
         if let saved = storedSavedProviders.first(where: { $0.id == currentSelectedProviderID }) {
+            // Saved/custom provider
             derivedCurrentProvider = "custom:\(saved.id)"
             derivedBaseURL = saved.baseURL
             derivedSelectedModel = storedSelectedModelByProvider[derivedCurrentProvider] ?? saved.models.first ?? ""
-        } else if currentSelectedProviderID == "openai" {
-            derivedCurrentProvider = "openai"
-            derivedBaseURL = "https://api.openai.com/v1"
-            derivedSelectedModel = storedSelectedModelByProvider["openai"] ?? "gpt-4.1"
-        } else if currentSelectedProviderID == "groq" {
-            derivedCurrentProvider = "groq"
-            derivedBaseURL = "https://api.groq.com/openai/v1"
-            derivedSelectedModel = storedSelectedModelByProvider["groq"] ?? "llama-3.3-70b-versatile"
-        } else {
+        } else if ModelRepository.shared.isBuiltIn(currentSelectedProviderID) {
+            // Built-in provider (openai, groq, cerebras, google, openrouter, ollama, lmstudio)
             derivedCurrentProvider = currentSelectedProviderID
-            derivedBaseURL = "https://api.openai.com/v1"
+            derivedBaseURL = ModelRepository.shared.defaultBaseURL(for: currentSelectedProviderID)
+            derivedSelectedModel = storedSelectedModelByProvider[currentSelectedProviderID] ?? ModelRepository.shared.defaultModels(for: currentSelectedProviderID).first ?? ""
+        } else {
+            // Unknown provider - fallback to OpenAI
+            derivedCurrentProvider = currentSelectedProviderID
+            derivedBaseURL = ModelRepository.shared.defaultBaseURL(for: "openai")
             derivedSelectedModel = storedSelectedModelByProvider[currentSelectedProviderID] ?? ""
         }
 
@@ -1684,7 +1698,9 @@ struct ContentView: View {
         let info = self.getCurrentAppInfo()
         self.recordingAppInfo = info
         DebugLogger.shared.debug("Captured recording app context: app=\(info.name), bundleId=\(info.bundleId), title=\(info.windowTitle)", source: "ContentView")
-        self.asr.start()
+        Task {
+            await self.asr.start()
+        }
 
         // Pre-load model in background while recording (avoids 10s freeze on stop)
         Task {
@@ -1919,7 +1935,9 @@ struct ContentView: View {
                     "Starting voice recording for command",
                     source: "ContentView"
                 )
-                self.asr.start()
+                Task {
+                    await self.asr.start()
+                }
             },
             rewriteModeCallback: {
                 // Try to capture text first while still in the other app
@@ -1947,7 +1965,9 @@ struct ContentView: View {
 
                 // Start recording immediately for the rewrite instruction (or text to improve)
                 DebugLogger.shared.info("Starting voice recording for rewrite/write mode", source: "ContentView")
-                self.asr.start()
+                Task {
+                    await self.asr.start()
+                }
             }
         )
 
@@ -2019,7 +2039,7 @@ struct ContentView: View {
 
     private func isCustomModel(_ model: String) -> Bool {
         // Non-removable defaults are the provider's default models
-        return !self.defaultModels(for: self.currentProvider).contains(model)
+        return !ModelRepository.shared.defaultModels(for: self.currentProvider).contains(model)
     }
 
     /// Check if the current model has a reasoning config (either custom or auto-detected)
