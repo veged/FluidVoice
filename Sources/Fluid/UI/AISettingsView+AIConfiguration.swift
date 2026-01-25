@@ -756,6 +756,16 @@ extension AIEnhancementSettingsView {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.fluidGreen)
+
+                    if isSelected {
+                        Text("Active")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.fluidGreen.opacity(0.2)))
+                            .foregroundStyle(Color.fluidGreen)
+                    }
                 }
 
                 Spacer()
@@ -815,10 +825,11 @@ extension AIEnhancementSettingsView {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(
-                    isSelected ? Color.fluidGreen.opacity(0.45) : self.theme.palette.cardBorder.opacity(0.25),
-                    lineWidth: isSelected ? 1.2 : 0.8
-                )
+                .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 0.8)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.fluidGreen.opacity(0.9) : .clear, lineWidth: 2)
         )
         // Verified rows always have interactive elements, don't use drawingGroup
         .contentShape(Rectangle())
