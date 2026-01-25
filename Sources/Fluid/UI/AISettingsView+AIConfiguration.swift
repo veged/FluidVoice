@@ -472,7 +472,8 @@ extension AIEnhancementSettingsView {
 
     private func providerStatus(for item: ProviderItem) -> (text: String, color: Color, icon: String) {
         if item.id == "fluid-1" {
-            if self.settings.fluid1InterestCaptured {
+            let hasInterest = self.settings.fluid1InterestCaptured
+            if hasInterest {
                 return ("Thanks · Coming soon", self.theme.palette.accent, "checkmark.circle.fill")
             }
             return ("Early access · Tap to join", self.theme.palette.accent, "hand.tap")
@@ -523,7 +524,8 @@ extension AIEnhancementSettingsView {
 
     private var fluid1InterestSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if self.settings.fluid1InterestCaptured {
+            let hasInterest = self.settings.fluid1InterestCaptured
+            if hasInterest {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 13))
@@ -555,6 +557,11 @@ extension AIEnhancementSettingsView {
                     TextField("you@example.com", text: self.$fluid1InterestEmail)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 13))
+                        .onChange(of: self.fluid1InterestEmail) { _, _ in
+                            if !self.fluid1InterestErrorMessage.isEmpty {
+                                self.fluid1InterestErrorMessage = ""
+                            }
+                        }
                 }
 
                 HStack(spacing: 10) {
@@ -572,16 +579,13 @@ extension AIEnhancementSettingsView {
                         }
                     }
                     .buttonStyle(GlassButtonStyle(height: AISettingsLayout.controlHeight))
-                    .disabled(
-                        self.fluid1InterestIsSubmitting ||
-                            self.fluid1InterestEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
+                    .disabled(self.fluid1InterestIsSubmitting)
+                }
 
-                    if !self.fluid1InterestErrorMessage.isEmpty {
-                        Text(self.fluid1InterestErrorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
+                if !self.fluid1InterestErrorMessage.isEmpty {
+                    Text(self.fluid1InterestErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
         }
@@ -600,7 +604,14 @@ extension AIEnhancementSettingsView {
     private func submitFluid1Interest() {
         guard !self.settings.fluid1InterestCaptured else { return }
         let email = self.fluid1InterestEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !email.isEmpty else { return }
+        guard !email.isEmpty else {
+            self.fluid1InterestErrorMessage = "Enter your email to join early access."
+            return
+        }
+        guard email.contains("@"), email.contains(".") else {
+            self.fluid1InterestErrorMessage = "Enter a valid email address."
+            return
+        }
         self.fluid1InterestErrorMessage = ""
         self.fluid1InterestIsSubmitting = true
 
@@ -659,6 +670,7 @@ extension AIEnhancementSettingsView {
             return false
         }
     }
+
 
     private func providerDetailsSection(for item: ProviderItem) -> AnyView {
         let isAppleDisabled = item.id == "apple-intelligence-disabled"
