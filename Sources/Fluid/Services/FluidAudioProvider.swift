@@ -112,6 +112,10 @@ final class FluidAudioProvider: TranscriptionProvider {
     var isAvailable: Bool { false }
     var isReady: Bool { false }
 
+    init(modelOverride: SettingsStore.SpeechModel? = nil) {
+        // Intel stub - parameter ignored
+    }
+
     func prepare(progressHandler: ((Double) -> Void)?) async throws {
         throw NSError(
             domain: "FluidAudioProvider",
