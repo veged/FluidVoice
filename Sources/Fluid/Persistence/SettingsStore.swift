@@ -704,6 +704,8 @@ final class SettingsStore: ObservableObject {
     enum TranscriptionStartSound: String, CaseIterable, Identifiable {
         case fluidSfx1 = "fluid_sfx_1"
         case fluidSfx2 = "fluid_sfx_2"
+        case fluidSfx3 = "fluid_sfx_3"
+        case fluidSfx4 = "fluid_sfx_4"
 
         var id: String { self.rawValue }
 
@@ -711,6 +713,8 @@ final class SettingsStore: ObservableObject {
             switch self {
             case .fluidSfx1: return "Fluid SFX 1"
             case .fluidSfx2: return "Fluid SFX 2"
+            case .fluidSfx3: return "Fluid SFX 3"
+            case .fluidSfx4: return "Fluid SFX 4"
             }
         }
 
@@ -718,6 +722,8 @@ final class SettingsStore: ObservableObject {
             switch self {
             case .fluidSfx1: return "FV_start"
             case .fluidSfx2: return "FV_start_2"
+            case .fluidSfx3: return "sfx_3"
+            case .fluidSfx4: return "sfx_4"
             }
         }
     }
@@ -757,7 +763,7 @@ final class SettingsStore: ObservableObject {
             guard let raw = self.defaults.string(forKey: Keys.transcriptionStartSound),
                   let option = TranscriptionStartSound(rawValue: raw)
             else {
-                return .fluidSfx2
+                return .fluidSfx4
             }
             return option
         }
