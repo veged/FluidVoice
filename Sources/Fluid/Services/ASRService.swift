@@ -509,7 +509,7 @@ final class ASRService: ObservableObject {
             return
         }
         guard self.isRunning == false, self.isStarting == false else {
-            DebugLogger.shared.warning("⚠️ START() blocked - already running (started: \(isRunning), starting: \(isStarting))", source: "ASRService")
+            DebugLogger.shared.warning("⚠️ START() blocked - already running (started: \(self.isRunning), starting: \(self.isStarting))", source: "ASRService")
             return
         }
 

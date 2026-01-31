@@ -117,7 +117,6 @@ config/secrets.yml
 *.keychain
 *.entitlements.bak
 */*.entitlements.bak
-
 ## Developer-specific Xcode settings (for open source)
 # Each developer should have their own team/bundle ID setup
 Fluid.xcodeproj/project.pbxproj.local
@@ -205,3 +204,11 @@ create_dmg_only.sh
 !Sources/Fluid/Resources/*.m4a
 # Scratch directory
 scratch/
+
+assets/
+.swiftpm/
+scripts/
+
+**.profraw
+icon_work/
+sample/
