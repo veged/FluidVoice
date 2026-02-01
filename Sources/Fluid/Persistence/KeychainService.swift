@@ -161,7 +161,6 @@ final class KeychainService {
         case errSecDuplicateItem:
             let updateAttributes: [String: Any] = [
                 kSecValueData as String: data,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             ]
             let updateStatus = SecItemUpdate(
                 aggregatedQuery() as CFDictionary,
