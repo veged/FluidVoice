@@ -113,9 +113,17 @@ final class BottomOverlayWindowController {
         // Re-calculate fitting size for the new layout constants
         let newSize = hostingView.fittingSize
 
-        // Update window size
-        window.setContentSize(newSize)
-        hostingView.frame = NSRect(origin: .zero, size: newSize)
+        // Avoid redundant content-size updates while AppKit is already resolving constraints.
+        // Re-applying the same size can trigger unnecessary update-constraints churn.
+        let currentSize = window.contentView?.frame.size ?? window.frame.size
+        let widthChanged = abs(currentSize.width - newSize.width) > 0.5
+        let heightChanged = abs(currentSize.height - newSize.height) > 0.5
+
+        if widthChanged || heightChanged {
+            // Update window size only when it actually changed.
+            window.setContentSize(newSize)
+            hostingView.frame = NSRect(origin: .zero, size: newSize)
+        }
 
         // Re-position
         self.positionWindow()
@@ -201,6 +209,8 @@ struct BottomOverlayView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @Environment(\.theme) private var theme
     @State private var showPromptHoverMenu = false
+    @State private var isHoveringPromptSelector = false
+    @State private var isHoveringPromptMenu = false
     @State private var promptHoverWorkItem: DispatchWorkItem?
 
     struct LayoutConstants {
@@ -321,6 +331,30 @@ struct BottomOverlayView: View {
         return "Default"
     }
 
+    private var promptSelectorFontSize: CGFloat {
+        max(self.layout.modeFontSize - 1, 9)
+    }
+
+    private var promptSelectorVerticalPadding: CGFloat {
+        4
+    }
+
+    private var promptMenuGap: CGFloat {
+        max(4, self.layout.vPadding * 0.35)
+    }
+
+    private var promptSelectorHeight: CGFloat {
+        self.promptSelectorFontSize + (self.promptSelectorVerticalPadding * 2) + 4
+    }
+
+    private var promptSelectorCornerRadius: CGFloat {
+        max(self.layout.cornerRadius * 0.42, 8)
+    }
+
+    private var promptSelectorMaxWidth: CGFloat {
+        self.layout.waveformWidth * 1.75
+    }
+
     private var previewMaxHeight: CGFloat {
         self.layout.transFontSize * 4.2
     }
@@ -337,13 +371,91 @@ struct BottomOverlayView: View {
         self.contentState.cachedPreviewText
     }
 
-    private func handlePromptHover(_ hovering: Bool) {
+    private func setPromptMenuVisible(_ visible: Bool) {
+        guard self.showPromptHoverMenu != visible else { return }
+        self.showPromptHoverMenu = visible
+    }
+
+    private func closePromptMenu() {
         self.promptHoverWorkItem?.cancel()
+        self.promptHoverWorkItem = nil
+        self.isHoveringPromptSelector = false
+        self.isHoveringPromptMenu = false
+        self.setPromptMenuVisible(false)
+    }
+
+    private func updatePromptMenuForHoverState() {
+        self.promptHoverWorkItem?.cancel()
+
+        let shouldShow = self.isHoveringPromptSelector || self.isHoveringPromptMenu
         let task = DispatchWorkItem {
-            self.showPromptHoverMenu = hovering
+            self.setPromptMenuVisible(shouldShow)
         }
         self.promptHoverWorkItem = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + (hovering ? 0.05 : 0.15), execute: task)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (shouldShow ? 0.04 : 0.16), execute: task)
+    }
+
+    private func handlePromptSelectorHover(_ hovering: Bool) {
+        self.isHoveringPromptSelector = hovering
+        self.updatePromptMenuForHoverState()
+    }
+
+    private func handlePromptMenuHover(_ hovering: Bool) {
+        self.isHoveringPromptMenu = hovering
+        self.updatePromptMenuForHoverState()
+    }
+
+    private var promptSelectorTrigger: some View {
+        HStack(spacing: 5) {
+            Text("Prompt:")
+                .font(.system(size: self.promptSelectorFontSize, weight: .medium))
+                .foregroundStyle(.white.opacity(0.5))
+            Text(self.selectedPromptLabel)
+                .font(.system(size: self.promptSelectorFontSize, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.75))
+                .lineLimit(1)
+            Image(systemName: "chevron.up")
+                .font(.system(size: max(self.promptSelectorFontSize - 1, 8), weight: .semibold))
+                .foregroundStyle(.white.opacity(0.45))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, self.promptSelectorVerticalPadding)
+        .background(
+            RoundedRectangle(cornerRadius: self.promptSelectorCornerRadius)
+                .fill(Color.black)
+                .overlay(
+                    RoundedRectangle(cornerRadius: self.promptSelectorCornerRadius)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.14),
+                                    Color.white.opacity(0.08),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                )
+        )
+    }
+
+    private var promptSelectorView: some View {
+        ZStack(alignment: .bottom) {
+            if self.showPromptHoverMenu {
+                self.promptMenuContent()
+                    .padding(.bottom, self.promptSelectorHeight + self.promptMenuGap)
+                    .zIndex(10)
+            }
+
+            self.promptSelectorTrigger
+                .zIndex(20)
+        }
+        .frame(maxWidth: self.promptSelectorMaxWidth, alignment: .bottom)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            self.handlePromptSelectorHover(hovering)
+        }
     }
 
     private func promptMenuContent() -> some View {
@@ -354,7 +466,7 @@ struct BottomOverlayView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     if let pid { _ = TypingService.activateApp(pid: pid) }
                 }
-                self.showPromptHoverMenu = false
+                self.closePromptMenu()
             }) {
                 HStack {
                     Text("Default")
@@ -379,7 +491,7 @@ struct BottomOverlayView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             if let pid { _ = TypingService.activateApp(pid: pid) }
                         }
-                        self.showPromptHoverMenu = false
+                        self.closePromptMenu()
                     }) {
                         HStack {
                             Text(profile.name.isEmpty ? "Untitled" : profile.name)
@@ -403,163 +515,155 @@ struct BottomOverlayView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
+        .frame(maxWidth: self.promptSelectorMaxWidth)
         .onHover { hovering in
-            self.handlePromptHover(hovering)
+            self.handlePromptMenuHover(hovering)
         }
     }
 
     var body: some View {
-        VStack(spacing: self.layout.vPadding / 2) {
-            // Transcription text area (wrapped)
-            Group {
-                if self.hasTranscription && !self.contentState.isProcessing {
-                    let previewText = self.transcriptionPreviewText
-                    if !previewText.isEmpty {
-                        ScrollViewReader { proxy in
-                            ScrollView(.vertical, showsIndicators: false) {
-                                Text(previewText)
-                                    .font(.system(size: self.layout.transFontSize, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.9))
-                                    .multilineTextAlignment(.leading)
-                                    .lineLimit(nil)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Color.clear.frame(height: 1).id("bottom")
-                            }
-                            .frame(width: self.previewMaxWidth)
-                            .frame(maxHeight: self.previewMaxHeight)
-                            .clipped()
-                            .onAppear {
-                                DispatchQueue.main.async {
-                                    proxy.scrollTo("bottom", anchor: .bottom)
-                                }
-                            }
-                            .onChange(of: previewText) { _, _ in
-                                DispatchQueue.main.async {
-                                    proxy.scrollTo("bottom", anchor: .bottom)
-                                }
-                            }
-                        }
-                        .padding(.vertical, self.transcriptionVerticalPadding)
-                    }
-                } else if self.contentState.isProcessing {
-                    ShimmerText(
-                        text: self.processingStatusText,
-                        color: self.modeColor,
-                        font: .system(size: self.layout.transFontSize, weight: .medium)
-                    )
-                }
-            }
-            .frame(
-                maxWidth: self.previewMaxWidth,
-                minHeight: self.hasTranscription || self.contentState.isProcessing ? self.layout.transFontSize * 1.5 : 0
-            )
-
-            // Dictation prompt selector (only in dictation mode)
+        VStack(spacing: max(4, self.layout.vPadding / 2)) {
             if self.isDictationMode && !self.contentState.isProcessing {
-                ZStack(alignment: .top) {
-                    HStack(spacing: 6) {
-                        Text("Prompt:")
-                            .font(.system(size: self.layout.modeFontSize, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Text(self.selectedPromptLabel)
-                            .font(.system(size: self.layout.modeFontSize, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.75))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: max(self.layout.modeFontSize - 2, 9), weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Color.white.opacity(0.00))
-                    .cornerRadius(8)
-                    .onHover { hovering in
-                        self.handlePromptHover(hovering)
-                    }
-
-                    if self.showPromptHoverMenu {
-                        self.promptMenuContent()
-                            .padding(.top, self.layout.modeFontSize + 14)
-                            .transition(.opacity)
-                            .zIndex(10)
-                    }
-                }
-                .frame(maxWidth: self.layout.waveformWidth * 2.0, alignment: .top)
-                .transition(.opacity)
+                self.promptSelectorView
             }
 
-            // Waveform + Mode label row
-            HStack(spacing: self.layout.hPadding / 1.5) {
-                // Target app icon (the app where text will be typed)
-                if let appIcon = contentState.targetAppIcon {
-                    let showModelLoading = !self.appServices.asr.isAsrReady &&
-                        (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
-                    VStack(spacing: 2) {
-                        if showModelLoading {
-                            ProgressView()
-                                .controlSize(.mini)
+            VStack(spacing: self.layout.vPadding / 2) {
+                // Transcription text area (wrapped)
+                Group {
+                    if self.hasTranscription && !self.contentState.isProcessing {
+                        let previewText = self.transcriptionPreviewText
+                        if !previewText.isEmpty {
+                            ScrollViewReader { proxy in
+                                ScrollView(.vertical, showsIndicators: false) {
+                                    Text(previewText)
+                                        .font(.system(size: self.layout.transFontSize, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.9))
+                                        .multilineTextAlignment(.leading)
+                                        .lineLimit(nil)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Color.clear.frame(height: 1).id("bottom")
+                                }
+                                .frame(width: self.previewMaxWidth)
+                                .frame(maxHeight: self.previewMaxHeight)
+                                .clipped()
+                                .onAppear {
+                                    DispatchQueue.main.async {
+                                        proxy.scrollTo("bottom", anchor: .bottom)
+                                    }
+                                }
+                                .onChange(of: previewText) { _, _ in
+                                    DispatchQueue.main.async {
+                                        proxy.scrollTo("bottom", anchor: .bottom)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, self.transcriptionVerticalPadding)
                         }
-                        Image(nsImage: appIcon)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: self.layout.iconSize, height: self.layout.iconSize)
-                            .clipShape(RoundedRectangle(cornerRadius: self.layout.iconSize / 4))
+                    } else if self.contentState.isProcessing {
+                        ShimmerText(
+                            text: self.processingStatusText,
+                            color: self.modeColor,
+                            font: .system(size: self.layout.transFontSize, weight: .medium)
+                        )
                     }
                 }
+                .frame(
+                    maxWidth: self.previewMaxWidth,
+                    minHeight: self.hasTranscription || self.contentState.isProcessing ? self.layout.transFontSize * 1.5 : 0
+                )
 
-                // Waveform visualization
-                BottomWaveformView(color: self.modeColor, layout: self.layout)
-                    .frame(width: self.layout.waveformWidth, height: self.layout.waveformHeight)
+                // Waveform + Mode label row
+                HStack(spacing: self.layout.hPadding / 1.5) {
+                    // Target app icon (the app where text will be typed)
+                    if let appIcon = contentState.targetAppIcon {
+                        let showModelLoading = !self.appServices.asr.isAsrReady &&
+                            (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
+                        VStack(spacing: 2) {
+                            if showModelLoading {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                            Image(nsImage: appIcon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: self.layout.iconSize, height: self.layout.iconSize)
+                                .clipShape(RoundedRectangle(cornerRadius: self.layout.iconSize / 4))
+                        }
+                    }
 
-                // Mode label + model load hint
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(self.modeLabel)
-                        .font(.system(size: self.layout.modeFontSize, weight: .semibold))
-                        .foregroundStyle(self.modeColor)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    // Waveform visualization
+                    BottomWaveformView(color: self.modeColor, layout: self.layout)
+                        .frame(width: self.layout.waveformWidth, height: self.layout.waveformHeight)
 
-                    if !self.appServices.asr.isAsrReady &&
-                        (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
-                    {
-                        Text("Loading model…")
-                            .font(.system(size: max(self.layout.modeFontSize - 2, 9), weight: .medium))
-                            .foregroundStyle(.orange.opacity(0.85))
+                    // Mode label + model load hint
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(self.modeLabel)
+                            .font(.system(size: self.layout.modeFontSize, weight: .semibold))
+                            .foregroundStyle(self.modeColor)
                             .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+
+                        if !self.appServices.asr.isAsrReady &&
+                            (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
+                        {
+                            Text("Loading model…")
+                                .font(.system(size: max(self.layout.modeFontSize - 2, 9), weight: .medium))
+                                .foregroundStyle(.orange.opacity(0.85))
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
+            .padding(.horizontal, self.layout.hPadding)
+            .padding(.vertical, self.layout.vPadding)
+            .background(
+                ZStack {
+                    // Solid pitch black background
+                    RoundedRectangle(cornerRadius: self.layout.cornerRadius)
+                        .fill(Color.black)
+
+                    // Inner border
+                    RoundedRectangle(cornerRadius: self.layout.cornerRadius)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.15),
+                                    Color.white.opacity(0.08),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                }
+            )
         }
-        .padding(.horizontal, self.layout.hPadding)
-        .padding(.vertical, self.layout.vPadding)
         .onChange(of: self.contentState.cachedPreviewText) { _, _ in
             BottomOverlayWindowController.shared.refreshSizeForContent()
         }
-        .onChange(of: self.contentState.isProcessing) { _, _ in
+        .onChange(of: self.showPromptHoverMenu) { _, _ in
             BottomOverlayWindowController.shared.refreshSizeForContent()
         }
-        .background(
-            ZStack {
-                // Solid pitch black background
-                RoundedRectangle(cornerRadius: self.layout.cornerRadius)
-                    .fill(Color.black)
-
-                // Inner border
-                RoundedRectangle(cornerRadius: self.layout.cornerRadius)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.15),
-                                Color.white.opacity(0.08),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+        .onChange(of: self.contentState.mode) { _, _ in
+            if !self.isDictationMode || self.contentState.isProcessing {
+                self.closePromptMenu()
             }
-        )
+            BottomOverlayWindowController.shared.refreshSizeForContent()
+        }
+        .onChange(of: self.contentState.isProcessing) { _, processing in
+            if processing {
+                self.closePromptMenu()
+            }
+            BottomOverlayWindowController.shared.refreshSizeForContent()
+        }
+        .onDisappear {
+            self.promptHoverWorkItem?.cancel()
+            self.promptHoverWorkItem = nil
+            self.isHoveringPromptSelector = false
+            self.isHoveringPromptMenu = false
+            self.showPromptHoverMenu = false
+        }
         // TODO: Add tap-to-expand for command mode history (future enhancement)
         // .contentShape(Rectangle())
         // .onTapGesture {
