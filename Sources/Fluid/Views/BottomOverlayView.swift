@@ -120,9 +120,11 @@ final class BottomOverlayWindowController {
         let heightChanged = abs(currentSize.height - newSize.height) > 0.5
 
         if widthChanged || heightChanged {
-            // Update window size only when it actually changed.
-            window.setContentSize(newSize)
-            hostingView.frame = NSRect(origin: .zero, size: newSize)
+            // Resize from the current origin to avoid AppKit's default top-left anchoring,
+            // which can visually push the overlay down before we re-position it.
+            let currentOrigin = window.frame.origin
+            let resizedFrame = NSRect(origin: currentOrigin, size: newSize)
+            window.setFrame(resizedFrame, display: false)
         }
 
         // Re-position
@@ -192,12 +194,8 @@ final class BottomOverlayWindowController {
 
         y = max(min(y, maxY), minY)
 
-        // Apply position using animator for smoother live transition if already visible
-        if window.isVisible {
-            window.animator().setFrameOrigin(NSPoint(x: x, y: y))
-        } else {
-            window.setFrameOrigin(NSPoint(x: x, y: y))
-        }
+        // Apply position directly to avoid implicit frame animations during hover-driven resizes.
+        window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }
 
