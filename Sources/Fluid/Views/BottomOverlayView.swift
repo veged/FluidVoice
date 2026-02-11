@@ -915,6 +915,7 @@ struct BottomOverlayView: View {
                             if showModelLoading {
                                 ProgressView()
                                     .controlSize(.mini)
+                                    .fixedSize()
                             }
                             Image(nsImage: appIcon)
                                 .resizable()

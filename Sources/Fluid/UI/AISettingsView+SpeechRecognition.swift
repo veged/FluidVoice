@@ -322,6 +322,7 @@ extension VoiceEngineSettingsView {
                     } else {
                         ProgressView()
                             .controlSize(.mini)
+                            .fixedSize()
                         Text(self.viewModel.asr.isLoadingModel ? "Loading…" : "Downloading…")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -414,7 +415,7 @@ extension VoiceEngineSettingsView {
         HStack(spacing: 12) {
             if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel) && !self.viewModel.asr.isAsrReady {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).fixedSize()
                     Text(self.viewModel.asr.isLoadingModel ? "Loading model…" : "Downloading…")
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -399,6 +399,7 @@ struct SettingsView: View {
                                     HStack(spacing: 8) {
                                         ProgressView()
                                             .controlSize(.small)
+                                            .fixedSize()
                                         Text("Hotkey initializing…")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
